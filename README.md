@@ -25,6 +25,7 @@ sudo ./igpu-start
 运行前保存工作：入口会自动识别冷启动、已准备、已发布及仅缺视频状态，并在显示尚未接管时切换一次旧桌面会话。旧 WindowServer 正常退出超时后，先保存调用栈、复核身份，再最多强制结束原进程一次。后台验收要求新会话、原生帧缓冲电源2及完成翻页增长；可见画面仍需用户确认。日志位于启动时打印的证据目录，详见部署文档。
 
 - [当前状态与验证边界](CURRENT-STATE.md)
+- [GPU 停顿与恢复的已核实范围](docs/GPU-STALL-RECOVERY-STATUS.md)
 - [源码构建](docs/BUILD.md)
 - [同硬件部署与启动](docs/DEPLOY-SAME-HARDWARE.md)
 - [运行时组件及视频发布加载](docs/RUNTIME.md)
