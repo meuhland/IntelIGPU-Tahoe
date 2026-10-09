@@ -32,21 +32,60 @@ Without `REIMS_TARGET` the build is the unchanged ADL-P upstream target.
 `igpu-start` therefore stops at the prepare stage on this target. That is
 intended until phases 4–5 (read-only mode decode, then takeover) are ported.
 
-## Proxmox guest requirements (unverified)
+## Proxmox guest setup
 
-- Host: IOMMU enabled, `8086:a780` bound to `vfio-pci`, host display on the dGPU.
-- Guest IGD at `00:02.0` on the root bus. The OpenCore isolation property
-  targets `PciRoot(0x0)/Pci(0x2,0x0)` and the gate expects `...@2`. Proxmox's
-  `hostpci` may place the device behind a bridge; raw `args:` may be needed.
-- SSDT naming the device `GFX0` (so `session.py`'s `ioreg -n GFX0` works).
-  Default path assumed: `IOService:/AppleACPIPlatformExpert/PCI0@0/AppleACPIPCI/GFX0@2`.
-  Confirm with the guest's `ioreg -p IOService -t -w0` and set
-  `REIMS_PCI_PATH` if it differs. A mismatch fails closed.
-- Display takeover inherits the firmware mode, so OVMF must light the monitor
-  through the IGD: this needs an IGD OpRegion and a Raptor Lake GOP ROM.
-  Use no emulated VGA, so the IGD framebuffer is the guest's only display.
-- Gen12 stolen memory (BDSM) passthrough depends on QEMU's IGD quirk support
-  for Gen11+; check the Proxmox QEMU version.
+Verified 2026-10-09 on Proxmox VE 9.2.21, pve-qemu-kvm 11.1.1, q35, OVMF;
+host board MSI (IGD subsystem `1462:7e03`).
+
+- **Placement.** Proxmox `hostpci` puts the IGD behind a root port
+  (`04:00.0` under `00:1c.0`) and cannot choose the guest address, and its
+  `legacy-igd` option targets i440fx. Attach it with raw `args:` instead, and
+  pin the `qemu-xhci` from `args:` elsewhere so it does not take slot 2:
+  `-device qemu-xhci,bus=pcie.0,addr=0x5 ...
+  -device vfio-pci,host=0000:00:02.0,bus=pcie.0,addr=0x2`
+  (and no `hostpci` entry for the IGD).
+- **Host ownership.** With raw `args:` Proxmox no longer rebinds the device.
+  The host uses the IGD for LXC QuickSync (`i915`), so it is not bound to
+  `vfio-pci` at boot; a VM hookscript unbinds `i915` and binds `vfio-pci`
+  in `pre-start` (refusing if `/dev/dri` for the IGD is open) and returns it
+  to `i915` in `post-stop` (`scripts/proxmox-igpu-hookscript.sh`). The macOS
+  VM and LXC QuickSync cannot use the IGD at the same time.
+- **Guest view.** `8086:a780` rev `04`, class `0x038000` (the host BIOS makes
+  the dGPU primary), at `IOService:/AppleACPIPlatformExpert/PCI0/AppleACPIPCI/S10@2`
+  with an `IONDRVFramebuffer` attached. QEMU's DSDT names it `\_SB.PCI0.S10`
+  and reuses `S10` for slot 2 behind its PCI bridges, so a global rename is
+  unsafe.
+- **GFX0 rename.** `session.py` looks the IGD up by name (`ioreg -n GFX0`) and
+  the rpls default gate path is `.../PCI0/AppleACPIPCI/GFX0@2`. OpenCore
+  `ACPI > Patch`, scoped to the root-bus device:
+
+  | Key | Value |
+  |---|---|
+  | `TableSignature` | `44534454` (`DSDT`) |
+  | `Base` | `\_SB.PCI0.S10` |
+  | `Find` | `5331305F` (`S10_`) |
+  | `Replace` | `47465830` (`GFX0`) |
+  | `Count` | `1` |
+  | `Limit` | `16` |
+
+  `Limit` keeps the match at the device's own name; if `Base` does not
+  resolve, nothing is renamed and the gate fails closed. Verify with
+  `ioreg -p IOService -t -w0 | grep -E 'GFX0@2|S10@2'`: one `GFX0@2` under
+  `PCI0/AppleACPIPCI`, the bridge's `S10@2` unchanged.
+- **ffff isolation.** The OpenCore device-id property targets
+  `PciRoot(0x0)/Pci(0x2,0x0)`, which matches this placement.
+- **QEMU IGD support (11.1.1, `hw/vfio/igd.c`).** `a780` is recognised as
+  gen 12. At any guest address QEMU emulates the 64-bit BDSM register
+  (`0xC0`) and, with `x-igd-opregion` (default on), exposes the host OpRegion
+  through fw_cfg. Legacy mode is gen 6–9 on i440fx only and never applies.
+  Stock OVMF does not consume those fw_cfg entries.
+- **Firmware display (phase 5).** Takeover inherits the firmware mode, so the
+  guest firmware must light a monitor through the IGD. Per QEMU's
+  `igd-assign.txt` this needs the IGD at `00:02.0` (done), VGA class (IGD set
+  primary in the host BIOS), and an option ROM built from `IgdAssignmentDxe`
+  (VfioIgdPkg for Gen11+) plus the Intel GOP driver extracted from the host
+  firmware. Then drop the emulated VGA (`vga: qxl` is kept for now as the
+  console).
 - Apple drivers may behave differently under a hypervisor; watch for it.
 
 Snapshot the guest before every kext install. QEMU's gdbstub can debug the
@@ -54,8 +93,9 @@ guest kernel (including the TGL kext) from the host.
 
 ## Open items
 
-1. Boot the guest with `ffff` isolation; record the IOService path and the
-   firmware display state (DDI, transcoder, DPLL) read-only.
+1. Apply the OpenCore `GFX0` rename and confirm the path; then boot with
+   `ffff` isolation and record the firmware display state (DDI, transcoder,
+   DPLL) read-only.
 2. Port `display_timing.hpp` decode for the RPL-S clock/PLL registers.
 3. Port takeover: remove DPT handling, generalize 1920×1080 constants.
 4. GT1 (32 EU) topology and workarounds in the native TGL runtime.

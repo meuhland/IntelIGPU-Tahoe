@@ -18,10 +18,11 @@ constexpr bool kInternalPanel=false;
 // Display takeover and the ADL-P RCS PSMI workaround write ADL-P registers.
 // Keep them refused until their RPL-S paths are ported; read-only probes stay.
 constexpr bool kHardwareWritesPorted=false;
-// Proxmox/QEMU q35 guest whose SSDT names the passed-through IGD GFX0 at
-// 00:02.0. Unverified: confirm on the guest and override with REIMS_PCI_PATH.
-// A mismatch fails closed (the gate refuses the device).
-#define REIMS_DEFAULT_PCI_PATH "IOService:/AppleACPIPlatformExpert/PCI0@0/AppleACPIPCI/GFX0@2"
+// Proxmox/QEMU q35 guest with the IGD at 00:02.0 on the root bus. QEMU's DSDT
+// names it \_SB.PCI0.S10 (seen on the guest as .../PCI0/AppleACPIPCI/S10@2);
+// an OpenCore ACPI patch renames it GFX0 for session.py. Without the rename
+// the path mismatches and the gate fails closed.
+#define REIMS_DEFAULT_PCI_PATH "IOService:/AppleACPIPlatformExpert/PCI0/AppleACPIPCI/GFX0@2"
 #else
 // Alder Lake-P, the validated upstream machine.
 constexpr uint16_t kDevice=0x46a3;

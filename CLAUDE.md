@@ -19,7 +19,8 @@ to a desktop Raptor Lake-S UHD 770 (8086:a780 rev 04).
 ## Target machine
 
 macOS Tahoe 25G83 guest on Proxmox (QEMU/KVM), iGPU passed through with VFIO;
-host display runs on a dGPU. Requirements and unknowns:
+host display runs on a dGPU. When the VM is off the host uses the iGPU for LXC
+QuickSync, so never bind it to vfio-pci at host boot. Requirements and unknowns:
 [docs/PORT-RPLS-UHD770.md](docs/PORT-RPLS-UHD770.md).
 
 ## Port state
@@ -56,8 +57,14 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   SHA-256 pins. MTLDriver is upstream's build (LC_UUID equals the pinned
   `tglUUID`; patch offsets line up); `libigdmd` and the VA driver
   (`NativeHEVCVA`) are unverified. Table in docs/PORT-RPLS-UHD770.md.
-- Next: boot with ffff isolation and record the guest's real IOService path
-  for GFX0 (`ioreg -p IOService -t -w0`) to pin `REIMS_PCI_PATH`.
+- Guest placement verified (VM 113, PVE 9.2 / QEMU 11.1.1): IGD at `00:02.0`
+  via raw `args:` (Proxmox `hostpci` puts it behind a root port), host
+  switches `i915` ↔ `vfio-pci` with `scripts/proxmox-igpu-hookscript.sh`
+  because the host uses the IGD for LXC QuickSync. Guest path
+  `.../PCI0/AppleACPIPCI/S10@2`; rpls default gate path assumes the OpenCore
+  rename to `GFX0@2` (patch table in docs/PORT-RPLS-UHD770.md). Gate rebuilt.
+- Next: apply and verify the OpenCore `GFX0` rename; then ffff isolation boot
+  and read-only firmware display state.
 
 ## Working rules
 
