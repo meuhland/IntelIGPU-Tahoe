@@ -12,3 +12,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_TARGET_RPLS \
  desktop-reset-recovery-20260917/source/desktop-link/test_display_timing.cpp \
  -o "$timing_test/test_display_timing"
 "$timing_test/test_display_timing"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_DISPLAY_BRINGUP=1 -DREIMS_TARGET_RPLS \
+ display-bringup/test_core_init.cpp -o "$timing_test/test_core_init"
+"$timing_test/test_core_init"

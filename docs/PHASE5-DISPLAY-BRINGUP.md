@@ -109,6 +109,40 @@ Order as in `intel_display_power.c`:
 Check: probe readback of power wells, fuse status, CDCLK and DBUF matches
 the reference.
 
+### Implementation (`display-bringup/`)
+
+`core_init.hpp` runs the sequence above over a templated register interface;
+`test_core_init.cpp` (in `scripts/test.sh`) drives it against a register model
+that starts from the guest idle state the phase 4 probe measured and ends at
+the host reference (`CDCLK_CTL` `0x00380264`, `BXT_DE_PLL_ENABLE`
+`0xc0000010`). It covers dry run, idempotence and every timeout or refusal.
+`bringup.cpp` wraps it in `ReimsDisplayBringup.kext`:
+
+- Builds only with `REIMS_DISPLAY_BRINGUP=1 REIMS_TARGET=rpls`
+  (`display-bringup/build.sh`); the header refuses to compile otherwise.
+- Default build is a dry run: its write function only counts (published as
+  `ReimsBringupBlockedWrites`, must be 0) and the log lists every planned
+  write. `REIMS_BRINGUP_EXECUTE=1` builds the writing variant.
+- Refuses unless the IGD is at `kPCIPath` with the exact identity, registry
+  `device-id` `ffff0000`, only `IONDRVFramebuffer` attached, and PCI memory
+  decoding already on. Preconditions: 38.4 MHz reference, PG0 fuses, DC
+  states off.
+- Every step skips when the hardware already holds its target value; the
+  first timeout or unexpected readback stops the run. Result and log:
+  `display-bringup/read_bringup.py`.
+
+Deliberate differences from i915:
+
+- DC states are only verified off (`gen9_set_dc_state` is not ported; no DMC).
+- CDCLK goes straight to the reference's 307.2 MHz (voltage level 0) instead
+  of the 172.8 MHz minimum followed by a modeset raise.
+- BW buddy takes i915's unknown-memory path (`BW_BUDDY_DISABLE`), since the
+  guest cannot read DRAM type; capture `BW_BUDDY_CTL/PAGE_MASK` from the host
+  to replicate its value later.
+- Unknown combo PHY voltage/process codes and any pcode error status abort,
+  where i915 warns and continues.
+- DBUF slice S2 stays off, as in i915's core init; the modeset enables it.
+
 ## Stage 3: one HDMI output (`hsw_crtc_enable` order)
 
 1. Power well 2 if the pipe is not A, and the DDI IO power well for the port.

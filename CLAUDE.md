@@ -89,8 +89,13 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   TC1/PHY B via DPLL0; VBT maps HDMI-B/C → TC1/TC2, DP-D/E → TC3/TC4, level
   shifter 6. The decoder reproduces i915's mode from the real dump (now a
   test vector). Target register table in docs/PHASE5-DISPLAY-BRINGUP.md.
-- Next: stage 2 code (display core init) in a new component built only with
-  `REIMS_DISPLAY_BRINGUP=1`; first guest mode 1080p60 or 4K30 (no scrambling).
+- Stage 2 code done, not run on hardware: `display-bringup/`
+  (`core_init.hpp`, `ReimsDisplayBringup.kext`, dry run by default,
+  `REIMS_BRINGUP_EXECUTE=1` for the writing build; host test in
+  `scripts/test.sh`). Deviations from i915 listed in the phase 5 doc.
+- Next: iGPU window: load the dry run, read the plan; then (go-ahead +
+  snapshot) the execute build and compare with the host reference. Then
+  stage 3 (HDMI TC1 at 1080p60 or 4K30).
 
 ## Working rules
 
