@@ -114,8 +114,9 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   unlisted IDs; `a780` is not listed. Ask upstream how ADL-P passes. Do not
   work on getting the driver past that check.
 - Next: one iGPU window for all of stage 3 (dry run, then execute with a
-  snapshot + go-ahead); expect the test pattern on the monitor. Code-only
-  meanwhile: HDMI infoframes, EDID over GMBUS, SCDC for 4K60.
+  snapshot + go-ahead); expect the test pattern on the monitor. Stage 3a now
+  sends a full-range AVI infoframe (avi_infoframe.hpp, VIC 95). Code-only
+  remaining: EDID over GMBUS, SCDC for 4K60.
 
 ## Working rules
 

@@ -29,7 +29,12 @@ int main(){
   CHECK(m.read(0x164284)==0x001001d0&&m.read(0x164288)==0x00000488);
   CHECK(fieldIs(m.read(0x164280),3U<<2|1U<<11,0));           // PHY B <- DPLL0, ungated
   CHECK(fieldIs(m.read(0x45454),0xc0,0xc0));                 // DDI IO TC1, as host 0xc0
-  CHECK(m.read(0x46140)==0x40000000&&m.read(0x60200)==0);
+  CHECK(m.read(0x46140)==0x40000000);
+  // AVI infoframe enabled, 4K30 full-range packet in the DIP data registers.
+  CHECK(m.read(0x60200)==(1u<<12));
+  CHECK(m.read(0x60220)==0x000d0282);            // type/version/length/hole
+  CHECK(m.read(0x60224)==0x082812ce);            // cksum CE, data0 0x12, data1 0x28, data2 0x08 (Q full)
+  CHECK(m.read(0x60228)==0x0000005f);            // data3 = VIC 95 (4K30), rest 0
   CHECK(m.read(0x6001c)==0x0eff086f&&m.read(0x70030)==0x00800100);
   CHECK(m.read(0x60000)==0x112f0eff&&m.read(0x60004)==0x112f0eff&&m.read(0x60008)==0x10070faf);
   CHECK(m.read(0x6000c)==0x08c9086f&&m.read(0x60010)==0x08c9086f&&m.read(0x60014)==0x08810877);
@@ -52,7 +57,7 @@ int main(){
   CHECK(o.log[o.count-1].step==uint8_t(Step::Done));}
  // Refusals and stops.
  {Model m;HdmiOutput<Model> o(m,true);
-  CHECK(o.runOutput({1920,2008,2052,2200,1080,1084,1089,1125,594000,true,true})==Result::PreconditionFailed);
+  CHECK(o.runOutput({1920,2008,2052,2200,1080,1084,1089,1125,594000,60,true,true})==Result::PreconditionFailed);
   CHECK(!m.wrote(0x46010));}
  {Model m;m.r[0x70008]=0xc0000000;HdmiOutput<Model> o(m,true);   // pipe already running
   CHECK(o.runOutput(kUhd30)==Result::PreconditionFailed);CHECK(!m.wrote(0x46010)&&!m.wrote(0x60400));}

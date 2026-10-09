@@ -1,6 +1,7 @@
 #pragma once
 #include "core_init.hpp"
 #include "hdmi_pll.hpp"
+#include "avi_infoframe.hpp"
 #include "../desktop-reset-recovery-20260917/source/desktop-link/display_timing.hpp"
 
 // Phase 5 stage 3a: drive one HDMI output with no plane (the pipe sends its
@@ -9,13 +10,13 @@
 // (port 3) on combo PHY B, DPLL0 - the routing host i915 uses on this board.
 // Only modes up to 340 MHz are accepted (no HDMI 2.0 scrambling or SCDC).
 // Order: power wells 2/3, DPLL0, DDI clock and IO power, transcoder clock,
-// infoframes off, pipe size/misc, transcoder timings and config, linetime,
+// AVI infoframe, pipe size/misc, transcoder timings and config, linetime,
 // pipe chicken, MBUS DBOX, DDI function, transcoder enable, PHY signal levels
 // (VBT HDMI level 6), lanes, DDI buffer; then a decoder readback.
 namespace ReimsBringup {
-struct HdmiMode {uint32_t hActive,hSyncStart,hSyncEnd,hTotal,vActive,vSyncStart,vSyncEnd,vTotal,clockKHz;bool hPos,vPos;};
+struct HdmiMode {uint32_t hActive,hSyncStart,hSyncEnd,hTotal,vActive,vSyncStart,vSyncEnd,vTotal,clockKHz,refreshHz;bool hPos,vPos;};
 // CEA 3840x2160@30 (297 MHz): the same timings host i915 runs at 60 Hz.
-constexpr HdmiMode kUhd30={3840,4016,4104,4400,2160,2168,2178,2250,297000,true,true};
+constexpr HdmiMode kUhd30={3840,4016,4104,4400,2160,2168,2178,2250,297000,30,true,true};
 
 namespace R3 {
 constexpr uint32_t pwrWellDriver=0x45404;           // HSW_PWR_WELL_CTL2
@@ -30,6 +31,8 @@ constexpr uint32_t dpclka0=0x164280;                 // ADLS_DPCLKA_CFGCR(PHY B)
 constexpr uint32_t phyBClkSelMask=3U<<2,phyBClkOff=1U<<11;
 constexpr uint32_t transClkSelA=0x46140,transClkTc1=4U<<28; // TGL_TRANS_CLK_SEL_PORT(3)
 constexpr uint32_t dipCtlA=0x60200;                  // HSW_VIDEO_DIP_CTL(A)
+constexpr uint32_t dipAviDataA=0x60220;              // HSW_TVIDEO_DIP_AVI_DATA(A)
+constexpr uint32_t dipEnableAvi=1U<<12;              // VIDEO_DIP_ENABLE_AVI_HSW
 constexpr uint32_t pipeSrcA=0x6001c,pipeMiscA=0x70030,pipeChickenA=0x70038,mbusDboxA=0x7003c;
 constexpr uint32_t pipeMiscValue=1U<<23|1U<<8;      // HDR precision | rounding trunc | BPC_8
 constexpr uint32_t pipeChickenBits=1U<<15|1U<<7;    // PIXEL_ROUNDING_TRUNC_FB_PASSTHRU | PER_PIXEL_ALPHA_BYPASS_EN
@@ -136,8 +139,16 @@ public:
   if(r==Result::OK)r=rmw(Step::DdiIoPower,R3::ddiPwrDriver,0,R3::tc1IoRequest);
   if(r==Result::OK)r=waitBits(Step::DdiIoPower,R3::ddiPwrDriver,R3::tc1IoState,R3::tc1IoState,1000);
   if(r==Result::OK)r=write(Step::TransClock,R3::transClkSelA,R3::transClkTc1,0,true);
-  // No infoframes yet: disable every DIP (hsw_set_infoframes without any).
+  // AVI infoframe (hsw_set_infoframes/hsw_write_infoframe), set up while the
+  // transcoder DDI function is still disabled: clear all DIP enables, write
+  // the 8 AVI data dwords, then set the AVI enable. Full-range RGB so the
+  // monitor does not treat our 0-255 output as limited range.
   if(r==Result::OK)r=write(Step::Infoframes,R3::dipCtlA,0,0,true);
+  if(r==Result::OK){
+   const auto avi=ReimsAVI::build(ReimsAVI::vicFor2160p(m.refreshHz),ReimsAVI::Range::Full);
+   for(unsigned i=0;i<8&&r==Result::OK;++i)r=write(Step::Infoframes,R3::dipAviDataA+i*4,avi.dw[i],uint8_t(1+i));
+  }
+  if(r==Result::OK)r=write(Step::Infoframes,R3::dipCtlA,R3::dipEnableAvi,9,true);
   if(r==Result::OK)r=write(Step::PipeSrc,R3::pipeSrcA,(m.hActive-1)<<16|(m.vActive-1),0,true);
   if(r==Result::OK)r=write(Step::PipeMisc,R3::pipeMiscA,R3::pipeMiscValue,0,true);
   // intel_set_transcoder_timings (display 12: vblank start = vactive + SCL 0).

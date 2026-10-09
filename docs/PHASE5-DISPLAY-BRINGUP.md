@@ -212,7 +212,7 @@ lights the link with no plane, so the pipe sends its black background.
 | DDI clock (`adls_ddi_enable_clock`) | `0x164280` PHY B select DPLL0, clear bit 11 | `0x01e07400` |
 | DDI IO TC1 (`icl_ddi_power_well_ops`) | `0x45454` bit 7, wait bit 6 | `0xc0` |
 | Transcoder clock | `TRANS_CLK_SEL` A `0x40000000` | same |
-| Infoframes | `VIDEO_DIP_CTL` A `0` | `0x11101` (AVI, limited range) |
+| AVI infoframe (`hsw_write_infoframe`) | `VIDEO_DIP_CTL` A, 8 AVI data dwords, AVI enable `1<<12`; VIC 95, full-range RGB | host `0x11101` (AVI+SPD+VS+GCP), limited range |
 | Pipe size / misc | `0x0eff086f` / `0x00800100` | same |
 | Timings | HTOTAL/HBLANK/HSYNC/VTOTAL/VBLANK/VSYNC | same |
 | Linetime (`skl_linetime_wm`) | `0x45270` = 119 | 60 (594 MHz) |
@@ -222,8 +222,11 @@ lights the link with no plane, so the pipe sends its black background.
 | Signal levels (level 6) | PHY B lanes DW2/DW4/DW5/DW7, CL_DW5, PCS_DW1 | equal on all four lanes |
 | Lanes, DDI buffer | `CL_DW10` lanes up; `DDI_BUF_CTL` TC1 bit 31, idle clear | `0x80000000` |
 
-Not done in 3a (documented deviations): no AVI/GCP infoframes (full-range
-RGB, host uses limited range with the pipe CSC), no VRR timing setup
+Not done in 3a (documented deviations): AVI infoframe is sent (full-range
+RGB, VIC by refresh via `avi_infoframe.hpp`; the builder reproduces the
+host's captured 4K60 AVI packet byte for byte), but no SPD/VS/GCP
+infoframes and no pipe output CSC (host uses limited range with both), no
+VRR timing setup
 (`CHICKEN_TRANS` vblank-with-delay, `TRANS_VRR_*`), no IPC
 (`DISP_ARB_CTL2` bit 3), no PW3 pipe-B interrupt restore. It refuses modes
 above 340 MHz, a running transcoder A or DDI TC1, and a DPLL0 already locked
