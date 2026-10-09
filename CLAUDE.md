@@ -99,8 +99,14 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   the guest: PW1, CDCLK 307.2 MHz via pcode + PLL, DBUF, BW buddy; readbacks
   equal the host reference. PHYs/workarounds were already set by host i915
   (PHY init path not yet exercised on hardware).
-- Next: stage 3 (HDMI TC1 at 1080p60 or 4K30): DPLL, DDI clock/power, PHY
-  signal levels, transcoder/pipe, DBUF/watermarks, plane on a test pattern.
+- Stage 3a code done, not run on hardware: `display-bringup/hdmi_output.hpp`
+  lights HDMI TC1 at 3840x2160@30 with no plane (black); every value checked
+  against the third host capture (`igpu-reference-20261009-145010`); kext
+  `REIMS_BRINGUP_STAGE=3`. Deviations (no infoframes, no VRR/IPC) in the
+  phase 5 doc.
+- Next: iGPU window for stage 3a (dry run, then execute with snapshot +
+  go-ahead): expect the monitor to sync to a black 4K30 signal. Then 3b
+  (plane, GGTT framebuffer, DBUF/watermarks).
 
 ## Working rules
 

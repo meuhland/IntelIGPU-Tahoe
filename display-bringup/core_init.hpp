@@ -17,7 +17,13 @@ namespace ReimsBringup {
 enum class Step:uint8_t {
  Preconditions=1,DCOff,WaPchClockGate,PchHandshake,ComboPhy,PowerWell1,
  CdclkPrepare,CdclkPll,CdclkCtl,CdclkVoltage,DbufTracker,DbufPower,Mbus,
- BwBuddy,WaDcpr,Done};
+ BwBuddy,WaDcpr,Done,
+ // Stage 3 (hdmi_output.hpp).
+ Output=32,PowerWell2,PowerWell3,DpllPower,DpllConfig,DpllEnable,DdiClock,
+ DdiIoPower,TransClock,Infoframes,PipeSrc,PipeMisc,Timings,TransMult,
+ FrameStart,TransConf,Linetime,PipeChicken,MbusDbox,DdiFunc,TransEnable,
+ PhyKeeper,PhyLoadgen,PhySusClock,PhyTraining,PhySwing,PhyLanes,DdiBuf,
+ Verify};
 enum class Action:uint8_t {Check,Skip,Plan,Write,Fail};
 struct Entry {uint8_t step,action,index,pad;uint32_t reg,before,after;};
 enum class Result:uint32_t {OK,Planned,PreconditionFailed,Timeout,Unexpected,LogFull};
@@ -74,12 +80,13 @@ constexpr uint32_t cdclkRatio=16,cdclkCtlValue=0x00380264,cdclkVoltage=0;
 constexpr uint32_t cdclkCtlMask=3U<<22|7U<<19|0x7ff;
 
 template<class IO> class CoreInit {
+protected:
  IO&io;const bool execute;
 public:
- static constexpr unsigned capacity=96;
+ static constexpr unsigned capacity=192;
  Entry log[capacity];unsigned count=0;
  CoreInit(IO&i,bool doWrite):io(i),execute(doWrite){}
-private:
+protected:
  bool record(Step s,Action a,uint32_t reg,uint32_t before,uint32_t after,uint8_t index=0){
   if(count>=capacity)return false;
   log[count++]={uint8_t(s),uint8_t(a),index,0,reg,before,after};return true;

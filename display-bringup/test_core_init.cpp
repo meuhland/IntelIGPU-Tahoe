@@ -1,59 +1,13 @@
 // Host-side test of the stage 2 core init against a register model. Built by
 // scripts/test.sh with -DREIMS_DISPLAY_BRINGUP=1 -DREIMS_TARGET_RPLS.
 #include <stdio.h>
-#include <map>
-#include <vector>
-#include "core_init.hpp"
+#include "test_model.hpp"
 
 using namespace ReimsBringup;
+using ReimsBringupTest::Model;
 static int failures;
 #define CHECK(c) do{if(!(c)){printf("FAIL %s:%d %s\n",__FILE__,__LINE__,#c);++failures;}}while(0)
 
-// Behaviour of the registers the sequence waits on. Everything else stores.
-struct Model {
- std::map<uint32_t,uint32_t> r;std::vector<std::pair<uint32_t,uint32_t>> writes;
- std::vector<uint32_t> pcodeCalls;uint64_t now=0;
- bool pwAck=true,fuseAck=true,pllLocks=true,dbufAck=true,pcodeHangs=false;
- unsigned pcodeBusyReplies=0;uint32_t pcodeStatus=0;
- Model(){
-  // Guest idle state measured by the phase 4 probe.
-  r[R::fuseStatus]=0x88000000;r[R::dssm]=0x40000020;r[R::dcStateEn]=0;
-  r[R::pwrWellDriver]=0;r[R::cdclkPll]=0;r[R::cdclkCtl]=0x00380000;
-  // COMP_DW3 as read on the host (0.85V dot0; masters A and D differ).
-  for(unsigned p=0;p<5;++p){const uint32_t b=R::phyBase[p];
-   r[b+R::compDw3]=(p==0||p==3)?0xc0606321:0xc0608021;r[b+R::txDw8Ln0]=0x00001234;r[b+R::pcsDw1Ln0]=0x00300000|0x55;}
-  r[R::phyMiscA]=R::deIoCompPwrDown;
- }
- uint32_t read(uint32_t a){auto i=r.find(a);return i==r.end()?0:i->second;}
- void delayUS(uint32_t us){now+=us;}
- uint64_t nowUS(){return now;}
- void write(uint32_t a,uint32_t v){
-  writes.push_back({a,v});now+=1;
-  if(a==R::pwrWellDriver){
-   v=(v&~0x15555U)|(pwAck?(v>>1)&0x15555U:0);
-   if(fuseAck&&(v&R::pw1State))r[R::fuseStatus]|=R::fusePG1;
-  }else if(a==R::cdclkPll){
-   v=(v&~R::pllLock)|((pllLocks&&(v&R::pllEnable))?R::pllLock:0);
-  }else if(a==R::dbufCtl[0]||a==R::dbufCtl[1]){
-   v=(v&~R::dbufState)|((dbufAck&&(v&R::dbufRequest))?R::dbufState:0);
-  }else if(a==R::pcodeMailbox&&(v&R::pcodeReady)){
-   pcodeCalls.push_back(r[R::pcodeData]);
-   if(pcodeHangs){r[a]=v;return;}
-   if((v&0xff)==R::pcodeCdclkControl&&r[R::pcodeData]==R::cdclkPrepare){
-    const bool busy=pcodeBusyReplies>0;if(busy)--pcodeBusyReplies;
-    r[R::pcodeData]=busy?0:R::cdclkReady;
-   }
-   v=(v&~R::pcodeReady&~R::pcodeErrorMask)|pcodeStatus;
-  }
-  for(unsigned p=0;p<5;++p){
-   const uint32_t b=R::phyBase[p];
-   if(a==b+R::txDw8Grp)r[b+R::txDw8Ln0]=v;
-   if(a==b+R::pcsDw1Grp)r[b+R::pcsDw1Ln0]=v;
-  }
-  r[a]=v;
- }
- bool wrote(uint32_t a)const{for(auto&w:writes)if(w.first==a)return true;return false;}
-};
 static unsigned countAction(const CoreInit<Model>&c,Action a){
  unsigned n=0;for(unsigned i=0;i<c.count;++i)n+=c.log[i].action==uint8_t(a);return n;
 }

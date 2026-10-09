@@ -7,9 +7,20 @@
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSIterator.h>
 #include "../common/reims_target.hpp"
+#if !defined(REIMS_BRINGUP_STAGE)
+#define REIMS_BRINGUP_STAGE 2
+#endif
+#if REIMS_BRINGUP_STAGE==3
+#include "hdmi_output.hpp"
+#elif REIMS_BRINGUP_STAGE==2
 #include "core_init.hpp"
+#else
+#error "REIMS_BRINGUP_STAGE must be 2 or 3"
+#endif
 
-// Phase 5 display bring-up (stage 2: display core init). Builds only with
+// Phase 5 display bring-up: stage 2 (display core init) or, with
+// REIMS_BRINGUP_STAGE=3, stage 2 then stage 3a (HDMI TC1 at 4K30, no plane;
+// hdmi_output.hpp). Builds only with
 // REIMS_DISPLAY_BRINGUP=1 and REIMS_TARGET=rpls. Without REIMS_BRINGUP_EXECUTE
 // it is a dry run: reads only, and publishes the writes it would make.
 // Refuses unless the IGD is isolated (registry device-id FFFF), carries no
@@ -63,8 +74,13 @@ class ReimsDisplayBringup:public IOService {
   IOMemoryMap*map=pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
   if(!map||map->getLength()<0x200000){OSSafeReleaseNULL(map);entry->release();refuse("BAR0 map failed");return false;}
   BarIO io{map->getVirtualAddress()};
+#if REIMS_BRINGUP_STAGE==3
+  ReimsBringup::HdmiOutput<BarIO> init(io,kExecute);
+  const auto result=init.runOutput(ReimsBringup::kUhd30);
+#else
   ReimsBringup::CoreInit<BarIO> init(io,kExecute);
   const auto result=init.run();
+#endif
   map->release();entry->release();
   setProperty("ReimsBringupResult",uint64_t(result),32);
   setProperty("ReimsBringupBlockedWrites",uint64_t(io.blockedWrites),32);
@@ -75,7 +91,7 @@ public:
  bool start(IOService*provider)override{
   if(!IOService::start(provider))return false;
   setProperty("ReimsBringupExecute",kExecute);
-  setProperty("ReimsBringupStage",2ULL,32);
+  setProperty("ReimsBringupStage",uint64_t(REIMS_BRINGUP_STAGE),32);
   setProperty("ReimsBringupPath",ReimsTarget::kPCIPath);
   setProperty("ReimsBringupComplete",bringup());
   // Stay attached, even after a refusal, so the result can be read back.

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Phase 5 display bring-up. WRITES DISPLAY REGISTERS when built with
 # REIMS_BRINGUP_EXECUTE=1; otherwise a dry run that only reads.
+# REIMS_BRINGUP_STAGE=2 (default): core init; 3: core init + HDMI TC1 4K30.
 #   REIMS_DISPLAY_BRINGUP=1 REIMS_TARGET=rpls bash display-bringup/build.sh
 # Load (user, fresh snapshot): stage a root-owned copy, then
 #   sudo kmutil load -p /private/tmp/ReimsDisplayBringup.kext
@@ -13,9 +14,11 @@ if [ "${REIMS_DISPLAY_BRINGUP:-}" != 1 ] || [ "${REIMS_TARGET:-}" != rpls ]; the
  exit 64
 fi
 source ../scripts/target-flags.sh
-flags=(-DREIMS_DISPLAY_BRINGUP=1)
-mode=dry-run
-if [ "${REIMS_BRINGUP_EXECUTE:-}" = 1 ]; then flags+=(-DREIMS_BRINGUP_EXECUTE=1); mode=EXECUTE; fi
+stage=${REIMS_BRINGUP_STAGE:-2}
+case "$stage" in 2|3) ;; *) echo "REIMS_BRINGUP_STAGE must be 2 or 3" >&2; exit 64 ;; esac
+flags=(-DREIMS_DISPLAY_BRINGUP=1 -DREIMS_BRINGUP_STAGE=$stage)
+mode="stage $stage dry-run"
+if [ "${REIMS_BRINGUP_EXECUTE:-}" = 1 ]; then flags+=(-DREIMS_BRINGUP_EXECUTE=1); mode="stage $stage EXECUTE"; fi
 sdk=$(xcrun --sdk macosx --show-sdk-path)
 headers="$sdk/System/Library/Frameworks/Kernel.framework/Headers"
 out=build/ReimsDisplayBringup.kext/Contents

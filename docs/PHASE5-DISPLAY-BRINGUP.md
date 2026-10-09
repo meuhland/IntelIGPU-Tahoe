@@ -198,6 +198,46 @@ Check after each step: probe readback against the reference;
 `display_timing.hpp` decodes the transcoder as `OK` with the reference mode;
 then the monitor shows the pattern.
 
+### Stage 3a implementation (`display-bringup/hdmi_output.hpp`)
+
+First mode: 3840×2160@30 (297 MHz, no scrambling or SCDC). It has exactly
+the timings host i915 runs at 60 Hz, so nearly every register can be checked
+against the third host capture (`igpu-reference-20261009-145010`). Stage 3a
+lights the link with no plane, so the pipe sends its black background.
+
+| Step (i915 function) | Write | Host value |
+|---|---|---|
+| PW2, PW3 (`hsw_power_well_enable`) | `0x45404` req bits 3, 5; fuses PG2/PG3 | `0x3f` |
+| DPLL0 (`combo_pll_enable`) | power, CFGCR0/1 `0x1001d0`/`0x488`, enable, lock | `0x1001d0`/`0x448` (div 3 at 594 MHz), `0xcc000000` |
+| DDI clock (`adls_ddi_enable_clock`) | `0x164280` PHY B select DPLL0, clear bit 11 | `0x01e07400` |
+| DDI IO TC1 (`icl_ddi_power_well_ops`) | `0x45454` bit 7, wait bit 6 | `0xc0` |
+| Transcoder clock | `TRANS_CLK_SEL` A `0x40000000` | same |
+| Infoframes | `VIDEO_DIP_CTL` A `0` | `0x11101` (AVI, limited range) |
+| Pipe size / misc | `0x0eff086f` / `0x00800100` | same |
+| Timings | HTOTAL/HBLANK/HSYNC/VTOTAL/VBLANK/VSYNC | same |
+| Linetime (`skl_linetime_wm`) | `0x45270` = 119 | 60 (594 MHz) |
+| Pipe chicken, MBUS DBOX | bits 15/7; `0x01038c02` | `0x8080`; `0xb1038c02` (31:28 not written by i915) |
+| DDI function (`intel_ddi_enable`) | `0xa0030000` | `0xa0030011` (scrambling) |
+| Transcoder enable | `TRANSCONF` A bit 31 | `0xc0000000` |
+| Signal levels (level 6) | PHY B lanes DW2/DW4/DW5/DW7, CL_DW5, PCS_DW1 | equal on all four lanes |
+| Lanes, DDI buffer | `CL_DW10` lanes up; `DDI_BUF_CTL` TC1 bit 31, idle clear | `0x80000000` |
+
+Not done in 3a (documented deviations): no AVI/GCP infoframes (full-range
+RGB, host uses limited range with the pipe CSC), no VRR timing setup
+(`CHICKEN_TRANS` vblank-with-delay, `TRANS_VRR_*`), no IPC
+(`DISP_ARB_CTL2` bit 3), no PW3 pipe-B interrupt restore. It refuses modes
+above 340 MHz, a running transcoder A or DDI TC1, and a DPLL0 already locked
+to other settings. After enabling, it checks that `PIPEDSL` moves and that
+`display_timing.hpp` decodes transcoder A to the requested mode.
+
+`test_hdmi_output.cpp` (in `scripts/test.sh`) runs stage 2 + 3a on the
+register model from the guest idle state and checks every value above,
+plus refusals and timeouts. Kext: `REIMS_BRINGUP_STAGE=3` (dry run 0 stores,
+execute 12).
+
+Stage 3b (next): DBUF S2, plane 1 DDB/watermarks, a GGTT-mapped framebuffer
+and the plane, plus pipe CSC/gamma.
+
 ## Stage 4: handoff to upstream
 
 Once the port lights the output, upstream's flow applies: the native
