@@ -79,9 +79,13 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   faults. Display engine fully unpowered (only PG0, no power wells, PLLs off,
   all DDI clocks gated); reference clock 38.4 MHz. Results table in
   docs/PORT-RPLS-UHD770.md. sudo on the guest needs the user's password.
-- Next (phase 5 planning): get a firmware-lit display on the IGD (IGD primary
-  in host BIOS, which affects the Proxmox host, + IgdAssignmentDxe/GOP option
-  ROM) or design a full display bring-up. Decide with the user first.
+- Phase 5 decision: port-owned display bring-up (user declined switching the
+  host BIOS primary display, so no firmware/GOP route). Plan:
+  docs/PHASE5-DISPLAY-BRINGUP.md. New register writes go in a separate
+  component built only with `REIMS_DISPLAY_BRINGUP=1`; `kHardwareWritesPorted`
+  stays false.
+- Next: stage 0, host reference capture with an HDMI monitor on a motherboard
+  output (`proxmox/capture-igpu-reference.sh`, read-only, VM stopped).
 
 ## Working rules
 

@@ -106,11 +106,8 @@ guest kernel (including the TGL kext) from the host.
 
 1. Done: read-only display probe run on the guest (results below).
 2. Done: `display_timing.hpp` RPL-S decoder (below).
-3. Phase 5 prerequisite: a firmware-initialised display. Either the guest
-   firmware lights the IGD (IGD primary in the host BIOS + an
-   `IgdAssignmentDxe` + Intel GOP option ROM), or the port gains a full
-   display bring-up (power wells, CDCLK, DPLL, PHY, link training), which
-   upstream never needed.
+3. Phase 5: the port brings the display up itself (host BIOS primary
+   display stays on the dGPU). Plan: [PHASE5-DISPLAY-BRINGUP.md](PHASE5-DISPLAY-BRINGUP.md).
 3. Port takeover: remove DPT handling, generalize 1920×1080 constants.
 4. GT1 (32 EU) topology and workarounds in the native TGL runtime.
 
