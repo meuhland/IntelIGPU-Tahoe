@@ -33,9 +33,13 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   (`scripts/target-flags.sh`); default `adlp` keeps upstream unchanged. On rpls,
   register-writing paths (native framebuffer takeover, RCS PSMI workaround) are
   refused; read-only probes remain. Not yet compiled against the macOS SDK.
-- Next: compile the gate and VideoDiscovery with `REIMS_TARGET=rpls`; get the
-  Ventura 13.7.8 (22H730) KDK, verify AppleIntelTGLGraphics SHA-256
-  `ae99582bd5a945494ee684d339ac1abd0526828bcd3ea981239c0fd38f794d47`, then build
+- KDK: no 22H730 (13.7.8) KDK was ever published; newest Ventura KDK is
+  22H722 (13.7.7). Find the Ventura KDK whose AppleIntelTGLGraphics matches
+  SHA-256 `ae99582bd5a945494ee684d339ac1abd0526828bcd3ea981239c0fd38f794d47`
+  (try 22H722, then 22G builds). Expand with `pkgutil --expand-full` after
+  `pkgutil --check-signature`; do not install. A different hash means the
+  prepare-deferred-runtime.py offsets and ABI checks must be re-derived.
+- Next: compile the gate and VideoDiscovery with `REIMS_TARGET=rpls`; build
   DesktopLink with `REIMS_TGL_IMAGE`; boot with ffff isolation and record the
   guest's real IOService path for GFX0 (`ioreg -p IOService -t -w0`) to pin
   `REIMS_PCI_PATH`.
