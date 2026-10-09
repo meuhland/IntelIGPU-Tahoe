@@ -15,3 +15,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_TARGET_RPLS \
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_DISPLAY_BRINGUP=1 -DREIMS_TARGET_RPLS \
  display-bringup/test_core_init.cpp -o "$timing_test/test_core_init"
 "$timing_test/test_core_init"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_TARGET_RPLS \
+ display-bringup/test_hdmi_pll.cpp -o "$timing_test/test_hdmi_pll"
+"$timing_test/test_hdmi_pll"
