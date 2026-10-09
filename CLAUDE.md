@@ -52,3 +52,6 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   until the RPL-S path is ported and reviewed.
 - Linux i915 (`intel_display_regs.h`, `intel_dpll_mgr.c`) is the reference for
   ADL-P vs RPL-S register differences; verify claims there, not from memory.
+- Prior art (NootedGreen etc.) and the TGL binary situation are in
+  docs/PORT-RPLS-UHD770.md. NootedGreen's license is non-commercial and
+  GPL-incompatible: use its findings, never copy its code.
