@@ -13,7 +13,8 @@ struct Model {
  std::map<uint32_t,uint32_t> r;std::vector<std::pair<uint32_t,uint32_t>> writes;
  std::vector<uint32_t> pcodeCalls;uint64_t now=0;
  bool pwAck=true,fuseAck=true,pllLocks=true,dbufAck=true,pcodeHangs=false;
- bool ddiIoAck=true,dpllLocks=true,ddiBufActive=true;
+ bool ddiIoAck=true,dpllLocks=true,ddiBufActive=true,surfLatches=true;
+ unsigned writes64=0;
  unsigned pcodeBusyReplies=0;uint32_t pcodeStatus=0;
  Model(){
   r[R::fuseStatus]=0x88000000;r[R::dssm]=0x40000020;r[R::dcStateEn]=0;
@@ -49,6 +50,8 @@ struct Model {
    if(dpllLocks&&(v&(1U<<31)))v|=1U<<30;
   }else if(a==0x70008){                            // TRANSCONF A state follows enable
    v=(v&~(1U<<30))|((v&(1U<<31))?1U<<30:0);
+  }else if(a==0x7019c){                            // PLANE_SURF 1A latches on a running pipe
+   if(surfLatches&&(r[0x70180]&(1U<<31))&&(r[0x70008]&(1U<<30)))r[0x701ac]=v;
   }else if(a==0x64300){                            // DDI buffer TC1 idle until enabled
    v=(v&~(1U<<7))|((ddiBufActive&&(v&(1U<<31)))?0:1U<<7);
   }else if(a==R::cdclkPll){
@@ -75,6 +78,8 @@ struct Model {
   }
   r[a]=v;
  }
+ // GGTT entries (BAR0 + 8 MiB) are written as one 64-bit store.
+ void write64(uint32_t a,uint64_t v){++writes64;now+=1;r[a]=uint32_t(v);r[a+4]=uint32_t(v>>32);}
  bool wrote(uint32_t a)const{for(auto&w:writes)if(w.first==a)return true;return false;}
 };
 }

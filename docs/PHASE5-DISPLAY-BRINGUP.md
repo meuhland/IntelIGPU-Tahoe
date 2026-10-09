@@ -235,8 +235,33 @@ register model from the guest idle state and checks every value above,
 plus refusals and timeouts. Kext: `REIMS_BRINGUP_STAGE=3` (dry run 0 stores,
 execute 12).
 
-Stage 3b (next): DBUF S2, plane 1 DDB/watermarks, a GGTT-mapped framebuffer
-and the plane, plus pipe CSC/gamma.
+### Stage 3b implementation (`display-bringup/hdmi_scanout.hpp`)
+
+Plane 1A scans out a 3840×2160 XRGB8888 linear test pattern (white border,
+eight colour bars, grey ramp) over the 3a link. Framebuffer arguments and the
+plane state are validated before stage 2 writes anything.
+
+| Step (i915 function) | Write | Host value |
+|---|---|---|
+| DBUF S2 (`gen9_dbuf_slices_update`) | `0x44fe8` request, state after 10 µs | `0xc040c000` |
+| Pipe colour (`icl_color_commit_arm`) | `GAMMA_MODE` A `0`, `CSC_MODE` A `0` (full range) | `0` / `0x40000000` (limited range) |
+| GGTT (`gen8_ggtt_insert_page`) | BAR0 + 8 MiB + (offset >> 12) × 8: `dma \| 1` per page, 64-bit | — |
+| Plane noarm (`icl_plane_update_noarm`) | stride `0xf0`, pos 0, size `0x086f0eff`, keys, keymax `0xff000000`, offset 0, AUX dist 0, CUS 0, colour `0x2000` | same |
+| Watermarks/DDB (`skl_write_plane_wm`) | WM0–7, WM_TRANS, `PLANE_BUF_CFG` `0x07ba0000` | same (4K60 values, conservative at 4K30) |
+| Plane arm (`icl_plane_update_arm`) | `PLANE_CTL` `0x84000000` then `PLANE_SURF` = GGTT offset | `0x84000000` / `0x00aa4000` |
+| Verify | `PLANE_SURFLIVE` = offset within 100 ms; `GEN8_DE_PIPE_IIR(A)` before/after (bit 31 underrun, informational) | — |
+
+The kext allocates the framebuffer (8100 pages below 512 GiB, GGTT offset
+16 MiB), fills and `clflush`es it (display reads are not snooped) and uses
+guest-physical page addresses as DMA addresses (no virtual IOMMU). It keeps
+the pages while the plane is on; unloading disables the plane, waits 100 ms
+and frees them, leaving the link up on black. `test_hdmi_scanout.cpp` checks
+the GGTT entries and host plane values, the `PLANE_CTL`/`PLANE_SURF` order,
+refusals with no register write, and timeouts.
+
+`REIMS_BRINGUP_STAGE=3` now runs stage 2 + 3a + 3b in one load. Expected on
+the monitor: the test pattern at 3840×2160@30 (full-range RGB without an
+AVI infoframe, so the monitor may treat it as limited range).
 
 ## Stage 4: handoff to upstream
 

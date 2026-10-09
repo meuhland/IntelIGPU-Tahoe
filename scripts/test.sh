@@ -21,3 +21,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_TARGET_RPLS \
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_DISPLAY_BRINGUP=1 -DREIMS_TARGET_RPLS \
  display-bringup/test_hdmi_output.cpp -o "$timing_test/test_hdmi_output"
 "$timing_test/test_hdmi_output"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_DISPLAY_BRINGUP=1 -DREIMS_TARGET_RPLS \
+ display-bringup/test_hdmi_scanout.cpp -o "$timing_test/test_hdmi_scanout"
+"$timing_test/test_hdmi_scanout"

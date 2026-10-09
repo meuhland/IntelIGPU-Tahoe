@@ -23,7 +23,9 @@ enum class Step:uint8_t {
  DdiIoPower,TransClock,Infoframes,PipeSrc,PipeMisc,Timings,TransMult,
  FrameStart,TransConf,Linetime,PipeChicken,MbusDbox,DdiFunc,TransEnable,
  PhyKeeper,PhyLoadgen,PhySusClock,PhyTraining,PhySwing,PhyLanes,DdiBuf,
- Verify};
+ Verify,
+ // Stage 3b (hdmi_scanout.hpp).
+ Scanout=64,DbufSlice2,PipeColor,Ggtt,PlaneConfig,PlaneWm,PlaneEnable,PlaneVerify};
 enum class Action:uint8_t {Check,Skip,Plan,Write,Fail};
 struct Entry {uint8_t step,action,index,pad;uint32_t reg,before,after;};
 enum class Result:uint32_t {OK,Planned,PreconditionFailed,Timeout,Unexpected,LogFull};

@@ -9,6 +9,8 @@ STEPS.update({32 + i: n for i, n in enumerate(
     'Output PowerWell2 PowerWell3 DpllPower DpllConfig DpllEnable DdiClock DdiIoPower TransClock '
     'Infoframes PipeSrc PipeMisc Timings TransMult FrameStart TransConf Linetime PipeChicken MbusDbox '
     'DdiFunc TransEnable PhyKeeper PhyLoadgen PhySusClock PhyTraining PhySwing PhyLanes DdiBuf Verify'.split())})
+STEPS.update({64 + i: n for i, n in enumerate(
+    'Scanout DbufSlice2 PipeColor Ggtt PlaneConfig PlaneWm PlaneEnable PlaneVerify'.split())})
 ACTIONS = ['check', 'skip', 'PLAN', 'WRITE', 'FAIL']
 RESULTS = ['OK', 'Planned', 'PreconditionFailed', 'Timeout', 'Unexpected', 'LogFull']
 

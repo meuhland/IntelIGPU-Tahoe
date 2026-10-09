@@ -104,9 +104,11 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   against the third host capture (`igpu-reference-20261009-145010`); kext
   `REIMS_BRINGUP_STAGE=3`. Deviations (no infoframes, no VRR/IPC) in the
   phase 5 doc.
-- Next: iGPU window for stage 3a (dry run, then execute with snapshot +
-  go-ahead): expect the monitor to sync to a black 4K30 signal. Then 3b
-  (plane, GGTT framebuffer, DBUF/watermarks).
+- Stage 3b code done, not run on hardware: `hdmi_scanout.hpp` puts a test
+  pattern on plane 1A via a GGTT-mapped framebuffer (DBUF S2, full-range
+  colour, host plane/WM/DDB values). `REIMS_BRINGUP_STAGE=3` runs 2 + 3a + 3b.
+- Next: one iGPU window for all of stage 3 (dry run, then execute with a
+  snapshot + go-ahead); expect the test pattern on the monitor.
 
 ## Working rules
 
