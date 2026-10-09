@@ -90,10 +90,12 @@ and in `verify_tgl_map_abi.py`. Upstream's input is most likely the same build
 with a different signature; that is inferred, not proven.
 
 The port uses `sle`: its identifier matches the gate profiles, and
-`prepare-deferred-runtime.py` accepts its hash next to upstream's. Running
-that script with it regenerates `manual-gate/deferred_uuid.hpp` and
-`deferred-runtime.json`; a scratch run gave candidate UUID
-`edbb0eb480dfe8e487eca25a0221af9a`. The Metal user-space files are in the same
+`prepare-deferred-runtime.py` accepts its hash next to upstream's. Prepared
+from it (Info.plist blob `dc62aaa9`, same NootedGreen commit): candidate
+SHA-256 `3c3def0b…1c0c`, UUID `edbb0eb480dfe8e487eca25a0221af9a`. The
+candidate differs from `sle` only in the 6-byte `registerService` NOP at
+`0x246b5`, the LC_UUID, and the re-signed code signature (`__LINKEDIT` and
+signature sizes). The Metal user-space files are in the same
 `sle` folder and are not yet hash-checked against upstream's pins.
 
 ## Prior art

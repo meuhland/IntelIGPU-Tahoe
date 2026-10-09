@@ -42,14 +42,20 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   it). The port uses the community `sle_Internal/sle` copy (SHA-256
   `890735a9…27ac`), which passes every upstream offset and ABI check but not
   upstream's hash `ae99582b…7d47`; prepare-deferred-runtime.py accepts both.
-  Details in docs/PORT-RPLS-UHD770.md. Local copy, outside the checkout:
-  `~/work/tgl-candidates/sle/` (binary only, no Info.plist yet).
-- DesktopLink builds for rpls against it (`REIMS_TGL_IMAGE`); tracked build
-  receipts were left at upstream's values.
-- Next: run prepare-deferred-runtime.py on the full `sle` kext (regenerates
-  `deferred_uuid.hpp`, so rebuild the gate after); boot with ffff isolation and
-  record the guest's real IOService path for GFX0 (`ioreg -p IOService -t -w0`)
-  to pin `REIMS_PCI_PATH`.
+  Details in docs/PORT-RPLS-UHD770.md. Source kext (binary + Info.plist):
+  `~/work/tgl-candidates/sle/AppleIntelTGLGraphics.kext`.
+- Prepared: deferred TGL candidate UUID `edbb0eb4…af9a`, kept outside the
+  checkout at `~/work/tgl-candidates/ReimsTGLManualRuntime.kext` (the deploy
+  doc's `ditto` source path must point there). Gate, DesktopLink and
+  VideoDiscovery are built for rpls and all tracked `*-current.json` receipts
+  describe those builds. Receipts are per build (debug maps embed object
+  timestamps), so deploy these exact kexts or rebuild and recommit receipts.
+  The gate does not compile `deferred_uuid.hpp`; session.py checks the TGL
+  UUID via `deferred-runtime.json`.
+- Next: hash-check the `sle` Metal bundle files against upstream's pins
+  (docs/DEPLOY-SAME-HARDWARE.md); boot with ffff isolation and record the
+  guest's real IOService path for GFX0 (`ioreg -p IOService -t -w0`) to pin
+  `REIMS_PCI_PATH`.
 
 ## Working rules
 

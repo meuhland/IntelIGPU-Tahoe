@@ -1,9 +1,11 @@
 {
-  "source_sha256": "ae99582bd5a945494ee684d339ac1abd0526828bcd3ea981239c0fd38f794d47",
-  "candidate_sha256": "095e4be1ab651df0db7dc660ede15527e75218995441f63d1ce4c49040017c7e",
+  "source_sha256": "890735a93a19d3ddda24ff31bda3075dbd145fb7b26c11769f33c4564a8027ac",
+  "candidate_sha256": "3c3def0b4b9e2797e96d8f6025dce8dd81a7c94c531aa70fecf0afa792b61c0c",
   "deferred_call_file_offset": "0x246b5",
   "deferred_call": "IOService::registerService(unsigned int)",
   "functional_text_change_bytes": 6,
-  "candidate_uuid": "8901b5893f935785fbf615d25e91632c",
-  "automatic_personalities": 0
+  "candidate_uuid": "edbb0eb480dfe8e487eca25a0221af9a",
+  "automatic_personalities": 0,
+  "installed": false,
+  "hardware_tested": false
 }
