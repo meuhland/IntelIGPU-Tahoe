@@ -227,6 +227,31 @@ identifiers with no team identifier. Use the MTLDriver copy of `libigdmd`.
 The VA driver and `libigdmd` stay unverified until the HEVC and Metal paths
 run on hardware.
 
+## Apple TGL accelerator on RPL-S (phase 6, static read of the `sle` binary)
+
+Observed in `IntelAccelerator` (read-only disassembly, 2026-10-09):
+
+- **Topology comes from fuses.** `getGPUInfo` reads `0x9138` (slices),
+  `0x913c` (dual-subslice enable, ×2 = subslices), `0x9134` (EU disable,
+  EUs/subslice = 8 − disabled) and `0x9140` (VD/VE boxes), the same registers
+  Linux uses. RPL-S GT1 should read as 1 slice, 4 subslices, 32 EUs.
+- **GT1-sized configuration exists.** For the TGL-LP SKU the check accepts
+  1 slice / 12 subslices (L3 banks 8) and 1 slice / 4 subslices when bit 5 of
+  the accelerator flags at `+0x1190` is set (L3 banks 4); otherwise it logs
+  "Invalid NumSlice or NumSubSlices for TGLLP GT2" and leaves the L3 bank
+  count unset. Where that flag is set is not yet known.
+- **SKU from the PCI device ID.** `probe` reads the vendor/device ID from PCI
+  config space (not the FFFF registry property; config space shows the real
+  `a780`, as the phase 4 probe confirmed) and maps a short list of Tiger Lake
+  IDs to a SKU; an unlisted ID ends in a panic ("Failed to map Device ID … to
+  GPU SKU", `tgl/IntelAccelerator.cpp:1141`). Neither `a780` nor ADL-P's
+  `46a3` is in that list in the `sle` binary.
+
+Open question for the upstream author: how their setup gets
+`IntelAccelerator::probe` to accept ADL-P's device ID with the `ae99582b…`
+binary. Until that is known, phase 6 (and the stage 4 handoff, which needs the
+accelerator) cannot be tested on RPL-S.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.

@@ -107,8 +107,15 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
 - Stage 3b code done, not run on hardware: `hdmi_scanout.hpp` puts a test
   pattern on plane 1A via a GGTT-mapped framebuffer (DBUF S2, full-range
   colour, host plane/WM/DDB values). `REIMS_BRINGUP_STAGE=3` runs 2 + 3a + 3b.
+- Stage 4 handoff audit: docs/PHASE5-HANDOFF-AUDIT.md (kernel K1–K13,
+  runtime R1–R8). Blocked on phase 6: the handoff needs Apple's accelerator.
+- Phase 6 open question (see port doc, "Apple TGL accelerator on RPL-S"):
+  `IntelAccelerator::probe` maps the PCI device ID to a SKU and panics on
+  unlisted IDs; `a780` is not listed. Ask upstream how ADL-P passes. Do not
+  work on getting the driver past that check.
 - Next: one iGPU window for all of stage 3 (dry run, then execute with a
-  snapshot + go-ahead); expect the test pattern on the monitor.
+  snapshot + go-ahead); expect the test pattern on the monitor. Code-only
+  meanwhile: HDMI infoframes, EDID over GMBUS, SCDC for 4K60.
 
 ## Working rules
 
