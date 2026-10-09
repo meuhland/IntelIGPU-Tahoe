@@ -1,38 +1,89 @@
-# 已实现能力与证据边界
+# Implemented capabilities and evidence boundaries
 
-更新：2026-09-18。以下汇总已有验证与用户实测反馈，本次文档更新没有重新运行桌面或剪映负载。
+Updated: 2026-09-18. The following summarizes existing verification and the
+user's own test feedback; this documentation update did not rerun the desktop
+or Jianying workloads.
 
-## Metal 支持
+## Metal support
 
-目标机器已经支持 Metal 基础硬件加速，系统和应用能够取得并使用核显 Metal 设备。已验证范围包括 WindowServer 桌面合成、普通纹理与渲染管线、命令缓冲提交、真实 GPU 完成，以及微信、图标服务和剪映等已测试应用所需的兼容入口。正式 Metal factory 的源码入口为 `hevc-encode-implementation/backend/service-route-20260917/factory.m`，并包含仓库中的纹理同步、管线和动态库兼容代码。
+The target machine already supports basic Metal hardware acceleration: the
+system and applications can obtain and use the iGPU Metal device. The verified
+scope covers WindowServer desktop compositing, ordinary textures and render
+pipelines, command-buffer submission, real GPU completion, and the
+compatibility entry points that tested applications such as WeChat, icon
+services, and Jianying require. The source entry point of the formal Metal
+factory is `hevc-encode-implementation/backend/service-route-20260917/factory.m`,
+along with the texture-sync, pipeline, and dynamic-library compatibility code
+in the repository.
 
-这里的“已支持 Metal”是对上述实测路径的能力结论，不表示实现了 macOS Metal 的全部接口。当前已知边界包括：
+"Metal is supported" here is a capability conclusion about the measured paths
+above; it does not mean the full macOS Metal interface is implemented. Known
+boundaries currently include:
 
-- 通用独立 Stencil8 尚未完成；现有组合 depth/stencil 后备只覆盖特定应用场景。
-- managed 纹理同步补丁只覆盖已验证的应用和部分二维、单层资源。
-- 动态着色器库、binary archive、mesh、部分 ICB/显式资源索引和动态顶点 stride 会如实报告不支持或走兼容路径。
-- Safari/图标的部分画面问题、GPU 挂起后的可靠恢复及长期稳定性仍未解决。
+- General standalone Stencil8 is not done; the existing combined depth/stencil
+  fallback covers only specific application scenarios.
+- The managed-texture sync patch covers only verified applications and some 2D,
+  single-layer resources.
+- Dynamic shader libraries, binary archives, mesh, some ICB / explicit resource
+  indexing, and dynamic vertex stride are faithfully reported as unsupported or
+  routed through compatibility paths.
+- Some Safari/icon rendering issues, reliable recovery after a GPU hang, and
+  long-term stability are still unresolved.
 
-因此项目首页可以明确写“已支持 Metal”，但兼容范围以这里列出的实际验证为准，不能扩展为“完整支持全部 Metal 功能”。
+So the project front page can clearly state "Metal is supported," but the
+compatibility scope is governed by the actual verification listed here and must
+not be expanded to "full support for all Metal features."
 
-## Apple 账户地图黑框
+## Apple-account map black box
 
-2026-09-21 实机验收通过。FollowUpUI 专用兼容保留 4 倍抗锯齿，在原 command buffer 中用 GPU 逐样本平均规避首次原生 MSAA resolve 全零，并保留 managed 同步。原生首次合成失败的内部原因尚未完全查明。见[地图合成兼容](../mapkit-resolve-compat/README.md)。
+Passed on-hardware acceptance on 2026-09-21. The FollowUpUI-specific
+compatibility keeps 4x anti-aliasing, works around the first native MSAA
+resolve coming out all-zero by averaging per sample on the GPU in the original
+command buffer, and preserves managed sync. The internal cause of the native
+first-composite failure is not yet fully determined. See
+[MapKit resolve compatibility](../mapkit-resolve-compat/README.md).
 
-## 桌面高刷新
+## High desktop refresh
 
-内置面板工作在 1920×1080 / 144 Hz。历史桌面拖动场景记录 119.67、120.86、126.08、127.05 fps，因此可以描述为“已实现桌面约 120 fps 及以上刷新表现”。面板刷新率（Hz）与实际生成的新帧率（fps）是不同指标。
+The built-in panel runs at 1920×1080 / 144 Hz. Desktop-dragging scenarios have
+recorded 119.67, 120.86, 126.08, and 127.05 fps, so this can be described as
+"desktop refresh performance of roughly 120 fps and above has been achieved."
+Panel refresh rate (Hz) and the actual new-frame rate generated (fps) are
+different metrics.
 
-另一固定场景三轮平均 95.942 fps，帧间隔 P95/P99 为 14.721/20.660 ms。不同窗口、会话和场景不能直接横比；上述成绩不代表全场景稳定 120 fps 以上。保持 macOS 原有视觉效果，未通过人为限帧取得结果。图标异常和 GPU 挂起仍在未解决范围。
+Another fixed scenario averaged 95.942 fps over three runs, with frame-interval
+P95/P99 of 14.721/20.660 ms. Different windows, sessions, and scenarios cannot
+be compared directly; the results above do not mean a stable 120+ fps across
+all scenarios. macOS's original visual effects are kept; the results were not
+obtained by artificially limiting the frame rate. The icon anomaly and the GPU
+hang remain in the unresolved scope.
 
-## 剪映视频预览与导出
+## Jianying video preview and export
 
-用户于 2026-09-18 明确补充：已实现剪映 H.264 视频硬解预览，以及导出过程中的硬解加速。这一应用体验以用户实测反馈记录。
+On 2026-09-18 the user explicitly added: Jianying H.264 hardware-decoded video
+preview, and decode acceleration during export, have been achieved. This
+application experience is recorded from the user's own test feedback.
 
-已有独立验证：H.264 自动选择硬件解码，30 帧无错误，30/30 帧与软件参考像素哈希一致。该结果证明已测 H.264 解码样例，不单独替代剪映应用路径采样。
+Existing standalone verification: H.264 automatically selected hardware
+decoding, 30 frames with no errors, and 30/30 frames matching the software
+reference pixel hash. That result proves the tested H.264 decode sample; it is
+not by itself a substitute for sampling the Jianying application path.
 
-已有剪映导出现场验证：2026-09-17 的实际素材为 HEVC，解码服务执行 AppleGVAHEVCDecoder → NativeTGLVA，并出现实际 Decoded / useHighPerformanceDecode=1；输出文件 sample entry 为 avc1，即 H.264。该记录确认导出时素材硬解参与，但不能作为 H.264 输入预览的独立路径证据。
+Existing Jianying export on-site verification: on 2026-09-17 the actual source
+material was HEVC, the decode service ran AppleGVAHEVCDecoder → NativeTGLVA, and
+real Decoded / useHighPerformanceDecode=1 appeared; the output file's sample
+entry was avc1, i.e. H.264. This record confirms the source material was
+hardware-decoded during export, but it cannot serve as independent path
+evidence for H.264 input preview.
 
-“硬解导出”在此指**导出期间素材解码使用硬件加速**。同次编码器出现 -12915 并加载 AppleH264SW，支持硬编创建失败后软件回退的判断；缺少活跃编码栈，不能只凭库加载证明执行。H.264 输出硬编码尚未验证成功，当前 G12 编码后端接入的是 HEVC 路线。
+"Hardware-decoded export" here means **the source material is decoded with
+hardware acceleration during export**. The same encoder run showed -12915 and
+loaded AppleH264SW, supporting the reading that hardware-encode creation failed
+and fell back to software; without an active encode stack, library loading
+alone cannot prove execution. Hardware encoding of H.264 output has not been
+verified to succeed; the current G12 encode backend is wired to the HEVC route.
 
-后续若需要提升 H.264 剪映场景的验证等级，应关联已知 H.264 输入、预览/导出时段、实际解码调用以及输出结果。原始个人视频与诊断数据不公开。
+If the verification level of the H.264 Jianying scenario needs to be raised
+later, it should correlate a known H.264 input, the preview/export time window,
+the actual decode calls, and the output result. The original personal videos
+and diagnostic data are not published.

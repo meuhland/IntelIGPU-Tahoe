@@ -1,15 +1,39 @@
-# GPU 停顿与恢复：已核实范围
+# GPU stall and recovery: verified scope
 
-更新于 2026-09-28。本页只发布已完成核查的结论；当前公开驱动**没有**解决随机 RCS/CCS 停顿或停止队列时的共享锁等待。
+Updated 2026-09-28. This page publishes only conclusions that have been
+verified; the current public driver does **not** solve random RCS/CCS stalls
+or the shared-lock wait when stopping a queue.
 
-## 已核实
+## Verified
 
-- 一次真实故障中，WindowServer 的提交线程等待加速器共享锁；另一个线程在停止命令队列、等待 GPU 事件及超时恢复时持有该锁，最终触发 WindowServer watchdog。故障早期还观察到 GPU 硬件进度停止；现有证据不足以唯一确定首个硬件停顿原因。
-- 对目标机器对应的原生代码完成只读生命周期审计：队列停止函数返回后，调用者仍会在同一锁内清理队列和资源。因此只让内层停止函数提前返回，不能安全地把等待移出锁。
-- 离线恢复策略、资源持有候选和共享集合生命周期账本已通过宿主测试；内核目标文件检查确认受控集合的 `merge(const OSSet*)` 覆写位于已审计调用槽。它们都未注册为运行驱动回调，也未证明真实资源图完整。
+- In one real fault, WindowServer's submission thread was waiting on the
+  accelerator's shared lock; another thread held that lock while stopping a
+  command queue, waiting for a GPU event, and timing out on recovery, which
+  finally tripped the WindowServer watchdog. Early in the fault a halt of GPU
+  hardware progress was also observed; the existing evidence is not enough to
+  single out the first hardware-stall cause.
+- A read-only lifetime audit of the native code for the target machine is
+  complete: after the queue-stop function returns, the caller still cleans up
+  the queue and resources under the same lock. So making only the inner stop
+  function return early cannot safely move the wait out of the lock.
+- The offline recovery strategy, the resource-hold candidates, and the
+  shared-set lifetime ledger have passed host tests; a kernel target-file check
+  confirms that the controlled set's `merge(const OSSet*)` override sits in an
+  audited call slot. None of them is registered as a running-driver callback,
+  and none proves the real resource graph is complete.
 
-## 尚未完成
+## Not yet done
 
-安全修复还需要从首个共享客户端起记录每个集合的创建、合并和释放，并在原生引用仍有效时取得持久引用。必须同时覆盖 RCS/CCS 的提交与完成回调、页表更新、事件通知和显示资源释放，才能在锁外等待并决定何时归还资源。失败任务还需要真实错误出口；不能伪造 GPU 完成或提前释放仍可能被访问的内存。
+A safe fix also needs to record every set's creation, merge, and release from
+the first shared client onward, and to take a persistent reference while the
+native reference is still valid. It must cover the RCS/CCS submission and
+completion callbacks, page-table updates, event notifications, and display
+resource release together, in order to wait outside the lock and decide when to
+return resources. A failed task also needs a real error exit; it must not fake
+GPU completion or release memory early that could still be accessed.
 
-这些候选仍在独立实验中。公开主分支不包含尚未验证的停止入口替换、改写的 Apple 二进制、故障现场日志或个人诊断数据。当前已发布的一键启动与地图兼容修复不能当作 GPU 停顿修复。
+These candidates are still under independent experimentation. The public main
+branch does not contain an unverified stop-entry replacement, a modified Apple
+binary, fault-scene logs, or personal diagnostic data. The currently published
+one-command startup and the MapKit compatibility fix must not be treated as a
+GPU-stall fix.

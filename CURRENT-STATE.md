@@ -1,32 +1,99 @@
-# 当前状态
+# Current status
 
-确认日期：2026-09-21。此公开快照仅包含源码及脱敏说明。
+Confirmed on: 2026-09-21. This public snapshot contains only source and
+sanitized notes.
 
-## 最后确认的事实
+## Last confirmed facts
 
-- 2026-09-28 完成 GPU 停顿恢复的只读生命周期核查及离线候选验证，确认队列停止后的原生路径仍在共享锁内清理依赖。随机停顿首因、完整资源持有、运行回调和锁外恢复均未完成；本次没有向公开驱动发布恢复补丁。见 [GPU 停顿与恢复的已核实范围](docs/GPU-STALL-RECOVERY-STATUS.md)。
+- On 2026-09-28 the read-only lifetime review of GPU-stall recovery and the
+  offline-candidate verification were completed, confirming that after a queue
+  stop the native path still cleans up dependencies under the shared lock. The
+  first cause of random stalls, complete resource holding, running callbacks,
+  and out-of-lock recovery are all unfinished; no recovery patch was released
+  to the public driver this time. See
+  [Verified scope of GPU stall and recovery](docs/GPU-STALL-RECOVERY-STATUS.md).
 
-- 2026-09-21 Apple 账户弹窗地图黑框已修复，用户确认真实弹窗地图正常；新 FollowUpUI 已加载兼容库并命中合成/同步路径。保留 4 倍抗锯齿与真实 GPU 完成，以原 command buffer 内逐样本平均规避首次原生 MSAA resolve 全零。最小复现、三次独立地图测试及安装后自动加载验证通过；原生内部首因和其他 GPU 稳定性不在完成结论内。见[实现和验证](mapkit-resolve-compat/README.md)。
+- On 2026-09-21 the Apple-account-popup map black box was fixed, and the user
+  confirmed the real popup map works; the new FollowUpUI loaded the
+  compatibility library and hit the composite/sync path. It keeps 4x
+  anti-aliasing and real GPU completion, working around the first native MSAA
+  resolve coming out all-zero by averaging per sample inside the original
+  command buffer. The minimal reproduction, three independent map tests, and
+  post-install auto-load verification passed; the native internal first cause
+  and other GPU stability are not part of the completed conclusion. See
+  [Implementation and verification](mapkit-resolve-compat/README.md).
 
-- 用户已实机确认一键启动的桌面接管修正成功；随后只读检查确认新 WindowServer 和原生帧缓冲电源2。入口新增脱离会话的工作进程、一次有界退出及超时强制退出兜底，强制退出前采集调用栈并复核原进程身份。10项接管测试通过。
-- 验证边界：本次后台验收在会话切换后遇到进程查询的 sysmond 服务错误，没有生成成功 result.json；当前未读到翻页计数。用户确认的画面恢复不等于自动验收链已完成，代码不会以缺失计数虚报成功。
+- The user has confirmed on-hardware that the one-command startup's
+  desktop-takeover fix succeeded; a subsequent read-only check confirmed the
+  new WindowServer and the native framebuffer at power state 2. The entry point
+  now adds a detached worker process, a single bounded exit, and a
+  timeout-forced-exit fallback, collecting the call stack and re-checking the
+  original process's identity before the forced exit. The 10 takeover tests
+  passed.
+- Verification boundary: this background acceptance hit a sysmond service error
+  during the process query after the session switch, so no successful
+  result.json was produced; the flip count was not read this time. The
+  picture recovery the user confirmed does not mean the automatic-acceptance
+  chain completed, and the code does not falsely report success with a missing
+  count.
 
-- Metal 基础硬件加速已支持并用于 WindowServer 桌面合成及已测试应用路径；普通纹理、管线和命令提交可工作。通用独立 Stencil8、动态着色器库、部分新 Metal 特性和长期稳定性仍有限制。详见 [能力与证据](docs/CAPABILITIES.md)。
-- 历史桌面拖动约 119–127 fps，内屏 144 Hz；其他固定场景约 95.94 fps，不承诺所有场景持续 120 fps 以上。
-- 用户于 2026-09-18 补充确认剪映 H.264 视频硬解预览及导出时硬解加速已实现。独立 H.264 30/30 帧像素一致；剪映已采样导出为 HEVC 素材硬解、H.264 输出，H.264 硬编码尚未验证成功。详见 [能力与证据](docs/CAPABILITIES.md)。
-- 实验机器可完成内置显示接管；公开 DesktopLink 源码版本为 0.6.23。
-- 视频能力发布组件 ReimsVideoDiscovery 0.1.3 是本运行时的视频接入必需项，已纳入显式会话流程。
-- HEVC 服务出错不再使用无限暂停进程的处理方式；会传播错误并隔离失败上下文。只有确认 GPU 已完成才能回收被引用的资源，无法确认时保留有界隔离槽并拒绝重用。
-- 真实 720p / 120 帧 HEVC Main8 编码完成；Apple 与 FFmpeg 解码都显示首帧 PSNR 约 11.63 dB，后续 119 帧约 52.24–54.77 dB。不能据此宣称画面完全正确。
-- 公开源码的 HEVC 服务、ManualActivation、DesktopLink、背光、VideoDiscovery 已在 Intel macOS / SDK 26.5 编译。内核构建仍有 SDK 弃用及最低系统版本警告。
-- 已补充与验证机器一致时的完整部署和手动启动顺序；本地构建会生成身份收据，启动器据此严格核对安装包和已加载 UUID。Apple 二进制仍须由使用者从相同版本系统合法取得。
-- 手动启动已统一为根目录 `igpu-start` 单入口。它根据实时状态只执行缺失的准备、显示提交和视频核验阶段，并以排他锁阻止并发接管；旧的 `session.py prepare/commit/video` 不再是公开操作接口。
-- ASan/UBSan 合成错误回收测试通过；未随仓库分发原生私有命令捕获，该部分测试明确跳过。
+- Basic Metal hardware acceleration is supported and used for WindowServer
+  desktop compositing and tested application paths; ordinary textures,
+  pipelines, and command submission work. General standalone Stencil8, dynamic
+  shader libraries, some newer Metal features, and long-term stability are
+  still limited. See [Capabilities and evidence](docs/CAPABILITIES.md).
+- Historical desktop dragging is about 119–127 fps on the 144 Hz internal
+  display; other fixed scenarios are about 95.94 fps, with no promise of a
+  sustained 120+ fps in all scenarios.
+- On 2026-09-18 the user additionally confirmed that Jianying H.264
+  hardware-decoded video preview and decode acceleration during export have
+  been achieved. A standalone H.264 test matched pixels for 30/30 frames; a
+  sampled Jianying export was HEVC source material, hardware-decoded, with
+  H.264 output, and H.264 hardware encoding has not been verified to succeed.
+  See [Capabilities and evidence](docs/CAPABILITIES.md).
+- The experimental machine can complete built-in display takeover; the public
+  DesktopLink source version is 0.6.23.
+- The video-capability publication component ReimsVideoDiscovery 0.1.3 is
+  required for this runtime's video onboarding and is part of the explicit
+  session flow.
+- An HEVC service error no longer uses the approach of pausing the process
+  indefinitely; it propagates the error and isolates the failed context. A
+  referenced resource can be reclaimed only once the GPU is confirmed
+  complete; when that cannot be confirmed, it stays in a bounded isolation slot
+  and reuse is refused.
+- Real 720p / 120-frame HEVC Main8 encoding completes; both Apple and FFmpeg
+  decoders show a first-frame PSNR of about 11.63 dB and about 52.24–54.77 dB
+  for the following 119 frames. This cannot be used to claim the picture is
+  fully correct.
+- The public source's HEVC service, ManualActivation, DesktopLink, backlight,
+  and VideoDiscovery compile on Intel macOS / SDK 26.5. The kernel builds still
+  have SDK-deprecation and minimum-system-version warnings.
+- The complete deployment and manual-startup sequence for when the machine
+  matches the verified one has been added; the local build generates identity
+  receipts, which the launcher uses to strictly check the installed bundle and
+  loaded UUID. Apple binaries must still be obtained legally by the user from
+  the same system version.
+- Manual startup has been unified into the single root `igpu-start` entry
+  point. Based on the live state it runs only the missing preparation,
+  display-commit, and video-verification stages, and blocks concurrent takeover
+  with an exclusive lock; the old `session.py prepare/commit/video` is no
+  longer a public operational interface.
+- The ASan/UBSan synthetic-error recovery tests pass; the native private
+  command capture is not distributed with the repository, and that part of the
+  tests is explicitly skipped.
 
-## 未解决
+## Unresolved
 
-HEVC 首帧异常、桌面 RCS 挂起的决定性触发原因及全面稳定性仍未解决。本轮未重新验证 1080p，未通过强制真实硬件故障证明所有回收路径。独立测试、系统 VideoToolbox 服务和剪映真实导出是不同验证层级，不能互相替代。
+The HEVC first-frame anomaly, the decisive trigger of the desktop RCS hang, and
+overall stability are still unresolved. This round did not re-verify 1080p, and
+did not prove all recovery paths by forcing a real hardware fault. Standalone
+testing, the system VideoToolbox service, and a real Jianying export are
+different verification tiers and cannot substitute for one another.
 
-## 下一步
+## Next steps
 
-保留首帧输入、预处理、依赖和重建结果的同步证据定位首帧异常；自然挂起时在复位前采集命令页、映射与上下文归属。公开构建结果需要在目标机器重新核对 ABI、签名和版本后才能部署。
+Locate the first-frame anomaly by keeping synchronized evidence of the
+first-frame input, preprocessing, dependencies, and rebuild result; on a
+natural hang, collect the command pages, mappings, and context ownership before
+reset. The public build output needs the ABI, signature, and version
+re-checked on the target machine before it can be deployed.
