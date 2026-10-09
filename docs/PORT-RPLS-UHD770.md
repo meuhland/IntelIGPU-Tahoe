@@ -104,10 +104,9 @@ guest kernel (including the TGL kext) from the host.
 
 ## Open items
 
-1. Read-only display probe: a small kext that maps `GFX0` BAR0, captures
-   the `ReimsDisplayTiming` snapshot, decodes every transcoder and publishes
-   the raw pairs and results. (`GFX0` rename, SIP and `ffff` isolation boot:
-   done.) Expect idle hardware until phase 5 lights the firmware display.
+1. Run the read-only display probe on the guest (built, not yet loaded;
+   see below). Expect idle hardware until phase 5 lights the firmware
+   display. (`GFX0` rename, SIP and `ffff` isolation boot: done.)
 2. Done: `display_timing.hpp` RPL-S decoder (below).
 3. Port takeover: remove DPT handling, generalize 1920×1080 constants.
 4. GT1 (32 EU) topology and workarounds in the native TGL runtime.
@@ -131,6 +130,29 @@ display 12+), the PLL formula and `TRANS_MULT` follow i915 unchanged.
 `decode(s, t, m)` decodes one transcoder; `decode(s, m)` returns the first
 enabled one. `scripts/test.sh` runs `test_display_timing.cpp` (HDMI and DP
 vectors over DPLL0/2/3 and PHYs A/C/D, plus failure cases).
+
+## Read-only display probe
+
+`display-probe/` builds `ReimsDisplayProbe.kext` (`REIMS_TARGET=rpls bash
+display-probe/build.sh`). It matches on `IOResources`, finds the IGD at
+`ReimsTarget::kPCIPath`, checks the real PCI identity, and refuses if PCI
+memory decoding is off rather than enabling it. It maps BAR0, reads the
+`ReimsDisplayTiming` registers plus power-well, DC-state, strap,
+`DDI_BUF_CTL` and plane registers, decodes transcoders A–D, and publishes
+`ReimsDisplayProbeRegistersV1` (offset/value pairs) and
+`ReimsDisplayProbeTranscoders` on its own service. The binary imports only
+PCI config reads (no config or I/O writes) and stores nothing through the
+mapping. `kmutil print-diagnostics` resolves its dependencies.
+
+Run (iGPU attached, fresh snapshot, user go-ahead):
+
+    sudo kmutil load -p display-probe/build/ReimsDisplayProbe.kext
+    python3 display-probe/read_probe.py
+    sudo kmutil unload -b lab.reims.ReimsDisplayProbe
+
+A first load of a new kext needs approval in System Settings → Privacy &
+Security and a reboot; then load again. `kmutil` also wants the bundle
+owned by `root:wheel`.
 
 ## Apple TGL binary source
 

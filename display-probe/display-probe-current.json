@@ -1,0 +1,10 @@
+{
+  "bundle": "ReimsDisplayProbe.kext",
+  "identifier": "lab.reims.ReimsDisplayProbe",
+  "version": "0.1.0",
+  "uuid": "36463DBB-645C-3802-A3A0-BF2AEF5FB8B6",
+  "hashes": {
+    "Contents/MacOS/ReimsDisplayProbe": "32887308b27226d8de28edbbf91debf55469b8b86e9bb2a2c726bd2d723be66f",
+    "Contents/Info.plist": "ac67d3567747b924432c204dc847ac68593e9dc69d011ef28336f9ad14c702a8"
+  }
+}

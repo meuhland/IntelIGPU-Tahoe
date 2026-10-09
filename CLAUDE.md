@@ -74,8 +74,10 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   A–D, ports A/TC1–TC4, DPLL0–3, DP SST and HDMI) under `REIMS_TARGET_RPLS`;
   adlp unchanged; host test in `scripts/test.sh`. The iGPU is currently
   detached from the VM (back on the host's LXC).
-- Next (phase 4): read-only display probe kext (maps BAR0, captures and
-  decodes); loading it needs the iGPU re-attached, go-ahead + snapshot.
+- Read-only probe built: `display-probe/` (`ReimsDisplayProbe.kext`,
+  `read_probe.py`); not yet loaded.
+- Next (phase 4): re-attach the iGPU, snapshot, load the probe and record the
+  firmware display state (go-ahead first; see docs/PORT-RPLS-UHD770.md).
 
 ## Working rules
 
