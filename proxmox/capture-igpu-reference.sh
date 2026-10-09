@@ -61,6 +61,22 @@ if command -v intel_reg > /dev/null; then
         intel_reg read --count=16 0x164280
         intel_reg read --count=12 0x1642bc
         for ddi in 0x64000 0x64300 0x64400 0x64500 0x64600; do intel_reg read --count=4 $ddi; done
+        # Stage 2 core init state (display-bringup/core_init.hpp): PCH clock
+        # gate, reset handshake, DCPR workaround, MBUS ABOX0-2, BW buddy 0-2.
+        intel_reg read 0xc2020 0x46408 0x46434 0x45038 0x45048 0x4504c
+        for b in 0x45130 0x45140 0x45150; do intel_reg read --count=2 $b; done
+        intel_reg read --count=3 0x64c00
+        # Combo PHYs A-E: CL_DW5/DW10, COMP_DW0-10, PCS_DW1 lane 0, TX_DW0-8
+        # lanes 0-3 (signal levels). Group registers (0x600-0x6ff) are write
+        # targets and are not read.
+        for phy in 0x162000 0x6c000 0x160000 0x161000 0x16b000; do
+            intel_reg read $(printf '0x%x 0x%x' $((phy + 0x14)) $((phy + 0x28)))
+            intel_reg read --count=11 $(printf '0x%x' $((phy + 0x100)))
+            intel_reg read $(printf '0x%x' $((phy + 0x804)))
+            for ln in 0 1 2 3; do
+                intel_reg read --count=9 $(printf '0x%x' $((phy + 0x880 + ln * 0x100)))
+            done
+        done
         for t in 0 1 2 3; do
             intel_reg read --count=24 $(printf '0x%x' $((0x60000 + t * 0x1000)))
             intel_reg read --count=12 $(printf '0x%x' $((0x60400 + t * 0x1000)))
