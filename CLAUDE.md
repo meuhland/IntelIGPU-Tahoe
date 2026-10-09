@@ -67,8 +67,11 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   clean): `GFX0` rename verified, the IGD is at the gate's rpls default path;
   SIP `csr-active-config` = `01000000` (Kext Signing only). Claude runs on
   this guest. SIP/security settings are the user's to change.
-- Next: ffff isolation boot (OpenCore device-id `ffff0000` on
-  `PciRoot(0x0)/Pci(0x2,0x0)`) and read-only firmware display state.
+- Done (phase 3): ffff isolation boot verified; `GFX0` registry `device-id`
+  is `<ffff0000>`, `IONDRVFramebuffer` attached, no Intel graphics kext loaded.
+  Config backups `config.plist.bak-20261009-*` sit next to the guest config.
+- Next (phase 4): port `display_timing.hpp` decode for RPL-S and read the
+  firmware display state read-only (needs a probe kext: go-ahead + snapshot).
 
 ## Working rules
 

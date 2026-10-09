@@ -79,8 +79,11 @@ host board MSI (IGD subsystem `1462:7e03`).
   then reports a custom configuration with only Kext Signing disabled. The
   Metal bundle may need further relaxation in phase 6 (unknown; upstream
   documents none).
-- **ffff isolation.** The OpenCore device-id property targets
-  `PciRoot(0x0)/Pci(0x2,0x0)`, which matches this placement.
+- **ffff isolation.** OpenCore `DeviceProperties > Add >
+  PciRoot(0x0)/Pci(0x2,0x0) > device-id` = `ffff0000`. Verified: `GFX0`'s
+  registry `device-id` reads `<ffff0000>` (what `session.py` requires), the
+  `compatible` list still carries `pci8086,a780` and `pci1462,7e03`,
+  `IONDRVFramebuffer` stays attached, and no Intel graphics kext loads.
 - **QEMU IGD support (11.1.1, `hw/vfio/igd.c`).** `a780` is recognised as
   gen 12. At any guest address QEMU emulates the 64-bit BDSM register
   (`0xC0`) and, with `x-igd-opregion` (default on), exposes the host OpRegion
@@ -100,8 +103,8 @@ guest kernel (including the TGL kext) from the host.
 
 ## Open items
 
-1. Boot with `ffff` isolation and record the firmware display state (DDI,
-   transcoder, DPLL) read-only. (`GFX0` rename and SIP: done.)
+1. Record the firmware display state (DDI, transcoder, DPLL) read-only.
+   (`GFX0` rename, SIP and `ffff` isolation boot: done.)
 2. Port `display_timing.hpp` decode for the RPL-S clock/PLL registers.
 3. Port takeover: remove DPT handling, generalize 1920×1080 constants.
 4. GT1 (32 EU) topology and workarounds in the native TGL runtime.
