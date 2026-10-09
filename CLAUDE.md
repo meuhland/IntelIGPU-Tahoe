@@ -84,8 +84,13 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   docs/PHASE5-DISPLAY-BRINGUP.md. New register writes go in a separate
   component built only with `REIMS_DISPLAY_BRINGUP=1`; `kHardwareWritesPorted`
   stays false.
-- Next: stage 0, host reference capture with an HDMI monitor on a motherboard
-  output (`proxmox/capture-igpu-reference.sh`, read-only, VM stopped).
+- Phase 5 stages 0–1 done: host reference captured
+  (`~/work/igpu-notes/igpu-reference-20261009-140748/`): 4K monitor on HDMI
+  TC1/PHY B via DPLL0; VBT maps HDMI-B/C → TC1/TC2, DP-D/E → TC3/TC4, level
+  shifter 6. The decoder reproduces i915's mode from the real dump (now a
+  test vector). Target register table in docs/PHASE5-DISPLAY-BRINGUP.md.
+- Next: stage 2 code (display core init) in a new component built only with
+  `REIMS_DISPLAY_BRINGUP=1`; first guest mode 1080p60 or 4K30 (no scrambling).
 
 ## Working rules
 

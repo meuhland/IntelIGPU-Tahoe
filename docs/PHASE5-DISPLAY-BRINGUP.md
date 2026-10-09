@@ -48,6 +48,48 @@ slices and plane buffer allocation. Decode the reference MMIO with
 `display_timing.hpp` (it must report `OK` for that transcoder) and record
 the expected values per stage.
 
+### Captured 2026-10-09 (`~/work/igpu-notes/igpu-reference-20261009-140748/`)
+
+Host i915 lit a 3840×2160 monitor (HDMI 2.0, also offers 1080p60 at
+148.5 MHz and 4K30 at 297 MHz). `display_timing.hpp` decodes the dump to the
+exact mode i915 reports; `test_display_timing.cpp` keeps it as a regression
+vector.
+
+VBT outputs (no port A on this board; all HDMI level shifter 6):
+
+| VBT | Port / PHY | Type | DDC | AUX |
+|---|---|---|---|---|
+| HDMI-B | TC1 / B | HDMI (monitor here) | 2 | – |
+| HDMI-C | TC2 / C | HDMI | 3 | – |
+| DP-D | TC3 / D | DP/HDMI | 4 | AUX-D |
+| DP-E | TC4 / E | DP/HDMI | 5 | AUX-E |
+
+Target state, guest idle (phase 4 probe) → host lit:
+
+| Register | Guest | Host | Meaning |
+|---|---|---|---|
+| `FUSE_STATUS` `0x42000` | `0x88000000` | `0x8f000000` | PG0 → PG0–3 distributed |
+| `PWR_WELL_CTL2` `0x45404` | `0` | `0x3f` | driver: power wells idx 0–2 requested and on |
+| `PWR_WELL_CTL_DDI2` `0x45454` | `0` | `0xc0` | DDI IO power idx 3 (TC1) |
+| `CDCLK_CTL` `0x46000` | – | `0x00380264` | CDCLK 307.2 MHz |
+| `BXT_DE_PLL_ENABLE` `0x46070` | – | `0xc0000010` | CDCLK PLL on and locked |
+| `DBUF_CTL_S` `0x45008`/`0x44fe8` | – | `0xc040c000` both | both DBUF slices on |
+| `DPLL0_ENABLE` `0x46010` | `0` | `0xcc000000` | enabled, locked, powered |
+| `DPLL0_CFGCR0/1` | stale | `0x001001d0`/`0x448` | 594 MHz (DCO 8910 MHz, p 3) |
+| `DPCLKA_CFGCR0` `0x164280` | `0x01e07c00` | `0x01e07400` | PHY B clock on, from DPLL0 |
+| `DDI_BUF_CTL` TC1 `0x64300` | `0` | `0x80000000` | DDI buffer on |
+| `TRANS_CLK_SEL` A `0x46140` | `0` | `0x40000000` | transcoder A ← port TC1 |
+| `TRANS_DDI_FUNC_CTL` A `0x60400` | `0` | `0xa0030011` | on, TC1, HDMI, 8 bpc, +h+v, scrambling + high TMDS |
+| `TRANSCONF` A `0x70008` | `0` | `0xc0000000` | transcoder on |
+| `PLANE_CTL_1` A `0x70180` | `0` | `0x84000000` | plane on, XRGB8888, linear |
+| `PLANE_STRIDE/SIZE/SURF_1` A | `0` | `0xf0`/`0x086f0eff`/`0x00aa4000` | 15360 B stride, 3840×2160, GGTT offset |
+| `PLANE_WM_1`/`WM_TRANS` A | – | `0x8000401f`/`0x8000002d` | watermarks |
+| `PLANE_BUF_CFG_1` A `0x7027c` | – | `0x07ba0000` | DBUF blocks 0–1978 (`i915_ddb_info`) |
+
+DMC firmware `i915/adls_dmc_ver2_01.bin` is loaded on the host; the port keeps
+DC states disabled instead. The first guest mode should be 1080p60 or 4K30
+(≤ 340 MHz, no scrambling/SCDC); 4K60 needs HDMI 2.0 scrambling over SCDC.
+
 ## Stage 2: display core init (`icl_display_core_init`)
 
 Order as in `intel_display_power.c`:

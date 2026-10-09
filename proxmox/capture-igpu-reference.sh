@@ -19,7 +19,8 @@ lspci -nnvvk -s "$dev" > "$out/lspci.txt" 2>&1
 
 # Connectors on the iGPU: status, modes, EDID.
 for c in /sys/class/drm/card*-*; do
-    [ "$(readlink -f "$c/device" 2>/dev/null)" = "$(readlink -f /sys/bus/pci/devices/$dev)" ] || continue
+    # A connector's device is the DRM card; the card's device is the PCI function.
+    [ "$(readlink -f "$c/device/device" 2>/dev/null)" = "$(readlink -f /sys/bus/pci/devices/$dev)" ] || continue
     name=$(basename "$c")
     for f in status enabled modes; do
         [ -r "$c/$f" ] && { echo "== $f"; cat "$c/$f"; } >> "$out/connector-$name.txt"

@@ -103,6 +103,24 @@ int main(){
   CHECK(near(m.refresh1616,30u<<16,70));
   Snapshot off=s;set(off,0x1642bc,s.get(0x1642bc)|1U<<4);CHECK(decode(off,3,m)==Status::Disabled);
  }
+ // Real RPL-S capture (host i915, 2026-10-09): 3840x2160@60 HDMI 2.0 on
+ // TC1/PHY B via DPLL0, scrambling bits set. i915 reported the same mode.
+ {static const uint32_t real[][2]={
+   {0x46010,0xcc000000},{0x46140,0x40000000},{0x51004,0x40000020},
+   {0x60000,0x112f0eff},{0x60008,0x10070faf},{0x6000c,0x08c9086f},{0x60014,0x08810877},
+   {0x60400,0xa0030011},{0x60420,0x600002b9},{0x61400,0x00030000},{0x61420,0x00000100},
+   {0x70008,0xc0000000},{0x70030,0x00800100},{0x71008,0x00000024},{0x71030,0x01000000},
+   {0x164280,0x01e07400},{0x164284,0x001001d0},{0x164288,0x00000448},
+   {0x16428c,0x018001d4},{0x164290,0x00002644},{0x164294,0x018001d4},{0x164298,0x00002644},
+   {0x1642bc,0x00000030},{0x1642c0,0x018001d4},{0x1642c4,0x00002644}};
+  Snapshot s;for(const auto&r:real)set(s,r[0],r[1]);
+  Mode m;CHECK(decode(s,0,m)==Status::OK);
+  CHECK(!m.dp&&m.port==3&&m.phy==1&&m.pll==0&&m.bpc==8&&m.hPositive&&m.vPositive);
+  CHECK(m.portClockHz==594000000&&m.pixelClockHz==594000000&&m.refresh1616==60u<<16);
+  CHECK(m.hActive==3840&&m.hTotal==4400&&m.hSyncStart==4016&&m.hSyncEnd==4104);
+  CHECK(m.vActive==2160&&m.vTotal==2250&&m.vSyncStart==2168&&m.vSyncEnd==2178);
+  for(unsigned t=1;t<transcoders;++t)CHECK(decode(s,t,m)==Status::Disabled);
+ }
  // Nothing enabled.
  {Snapshot s;Mode m;CHECK(decode(s,m)==Status::Disabled);CHECK(decode(s,4,m)==Status::Route);}
  if(failures){printf("%d failure(s)\n",failures);return 1;}
