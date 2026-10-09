@@ -95,9 +95,12 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   `scripts/test.sh`). Deviations from i915 listed in the phase 5 doc. All 55
   stage 2 target values match host i915's live state (second capture
   `igpu-reference-20261009-143055`); PHYs report 0.85 V dot0.
-- Next: iGPU window: load the dry run, read the plan; then (go-ahead +
-  snapshot) the execute build and compare with the host reference. Then
-  stage 3 (HDMI TC1 at 1080p60 or 4K30).
+- Done (phase 5 stage 2 on hardware, 2026-10-09): execute build ran `OK` on
+  the guest: PW1, CDCLK 307.2 MHz via pcode + PLL, DBUF, BW buddy; readbacks
+  equal the host reference. PHYs/workarounds were already set by host i915
+  (PHY init path not yet exercised on hardware).
+- Next: stage 3 (HDMI TC1 at 1080p60 or 4K30): DPLL, DDI clock/power, PHY
+  signal levels, transcoder/pipe, DBUF/watermarks, plane on a test pattern.
 
 ## Working rules
 

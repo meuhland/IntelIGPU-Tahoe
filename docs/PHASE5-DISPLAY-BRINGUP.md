@@ -139,6 +139,28 @@ the measured 0.85 V dot0 process code (`COMP_DW3` `0xc0606321` on masters A/D,
 DCPR and PCH workarounds. Host i915 also disables the BW buddy
 (`BW_BUDDY_CTL(1/2)` = `0x80000000`), the same path the port takes.
 
+### Run on the guest 2026-10-09 (VM 113, iGPU attached, after a snapshot)
+
+Dry run: identity verified, 0 blocked writes, result `Planned`. The combo
+PHYs, PCH clock gate, reset handshake, MBUS and DCPR bits were already set
+(left by host i915, which had just driven the monitor), so the plan was 9
+writes. Execute build: result `OK`, every wait met, readbacks equal to the
+host reference:
+
+| Step | Readback |
+|---|---|
+| Power well 1 | `0x45404` request `0x2`; state and PG1 fuse confirmed |
+| CDCLK prepare (pcode `0x7`/`0x3`) | status 0, reply `0x1` on the first try |
+| CDCLK PLL `0x46070` | `0x0000001c` → `0xc0000010` |
+| `CDCLK_CTL` `0x46000` | `0x00380158` → `0x00380264` |
+| CDCLK voltage level 0 (pcode) | status 0 |
+| DBUF S1/S2 tracker, S1 power | `0x0060c000` → `0x0040c000`; S1 `0x8040c000`, state confirmed |
+| BW buddy 1/2 | `0x08100000` → `0x80000000` |
+
+Log: `~/work/igpu-notes/bringup-stage2-execute-20261009.txt`. Not yet run:
+the combo PHY init path (the PHYs were already initialised); after a host
+boot that never lit the IGD it would execute.
+
 Deliberate differences from i915:
 
 - DC states are only verified off (`gen9_set_dc_state` is not ported; no DMC).
