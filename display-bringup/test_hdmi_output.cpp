@@ -55,9 +55,19 @@ int main(){
   CHECK(fieldIs(m.read(0x6c014),3,3)&&fieldIs(m.read(0x6c028),0xf0,0));
   CHECK(fieldIs(m.read(0x6c804),1U<<26,0));
   CHECK(o.log[o.count-1].step==uint8_t(Step::Done));}
+ // 4K60 sets the scrambling bits in the DDI func word (host value 0xa0030011).
+ {Model m;HdmiOutput<Model> o(m,true);
+  CHECK(o.runOutput(kUhd60)==Result::OK);
+  CHECK(m.read(0x60400)==0xa0030011);            // + HDMI_SCRAMBLING (bit0) + HIGH_TMDS_CHAR_RATE (bit4)
+  CHECK(m.read(0x164284)==0x001001d0&&m.read(0x164288)==0x00000448); // DPLL0 594 MHz (div 3)
+  CHECK((m.read(0x60228)&0xff)==97);}            // AVI VIC 97 (4K60)
+ // 4K60 is refused when the mode does not request scrambling.
+ {Model m;HdmiOutput<Model> o(m,true);
+  HdmiMode noscramble=kUhd60;noscramble.scramble=false;
+  CHECK(o.runOutput(noscramble)==Result::PreconditionFailed);CHECK(!m.wrote(0x46010));}
  // Refusals and stops.
  {Model m;HdmiOutput<Model> o(m,true);
-  CHECK(o.runOutput({1920,2008,2052,2200,1080,1084,1089,1125,594000,60,true,true})==Result::PreconditionFailed);
+  CHECK(o.runOutput({1920,2008,2052,2200,1080,1084,1089,1125,594000,60,true,true,false})==Result::PreconditionFailed);
   CHECK(!m.wrote(0x46010));}
  {Model m;m.r[0x70008]=0xc0000000;HdmiOutput<Model> o(m,true);   // pipe already running
   CHECK(o.runOutput(kUhd30)==Result::PreconditionFailed);CHECK(!m.wrote(0x46010)&&!m.wrote(0x60400));}

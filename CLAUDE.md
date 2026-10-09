@@ -116,10 +116,13 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
 - Next: one iGPU window for all of stage 3 (dry run, then execute with a
   snapshot + go-ahead); expect the test pattern on the monitor. Stage 3a now
   sends a full-range AVI infoframe (avi_infoframe.hpp, VIC 95). Code-only
-  remaining: SCDC for 4K60.
+  remaining display-side: none outstanding (SCDC 4K60 done).
 - EDID over GMBUS done (code): `display-bringup/edid_read.hpp` + test recover
   the real monitor EDID; stage-3 execute build reads and publishes it (DDC
   pin 2). Not yet run on hardware.
+- SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
+  `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
+  4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.
 
 ## Working rules
 

@@ -2,6 +2,7 @@
 #include "core_init.hpp"
 #include "hdmi_pll.hpp"
 #include "avi_infoframe.hpp"
+#include "hdmi_scdc.hpp"
 #include "../desktop-reset-recovery-20260917/source/desktop-link/display_timing.hpp"
 
 // Phase 5 stage 3a: drive one HDMI output with no plane (the pipe sends its
@@ -14,9 +15,11 @@
 // pipe chicken, MBUS DBOX, DDI function, transcoder enable, PHY signal levels
 // (VBT HDMI level 6), lanes, DDI buffer; then a decoder readback.
 namespace ReimsBringup {
-struct HdmiMode {uint32_t hActive,hSyncStart,hSyncEnd,hTotal,vActive,vSyncStart,vSyncEnd,vTotal,clockKHz,refreshHz;bool hPos,vPos;};
+struct HdmiMode {uint32_t hActive,hSyncStart,hSyncEnd,hTotal,vActive,vSyncStart,vSyncEnd,vTotal,clockKHz,refreshHz;bool hPos,vPos,scramble;};
 // CEA 3840x2160@30 (297 MHz): the same timings host i915 runs at 60 Hz.
-constexpr HdmiMode kUhd30={3840,4016,4104,4400,2160,2168,2178,2250,297000,30,true,true};
+constexpr HdmiMode kUhd30={3840,4016,4104,4400,2160,2168,2178,2250,297000,30,true,true,false};
+// 3840x2160@60 (594 MHz > 340): HDMI 2.0, needs SCDC scrambling at 1/40.
+constexpr HdmiMode kUhd60={3840,4016,4104,4400,2160,2168,2178,2250,594000,60,true,true,true};
 
 namespace R3 {
 constexpr uint32_t pwrWellDriver=0x45404;           // HSW_PWR_WELL_CTL2
@@ -123,7 +126,8 @@ public:
   Result r=CoreInit<IO>::run();
   if(r!=(execute?Result::OK:Result::Planned))return r;
   record(Step::Output,Action::Check,R3::transConfA,m.clockKHz,m.hActive<<16|m.vActive);
-  if(m.clockKHz>340000)return fail(Step::Output,Result::PreconditionFailed,0,m.clockKHz);
+  // Above 340 MHz needs HDMI 2.0 scrambling at the 1/40 bit-clock ratio.
+  if(m.clockKHz>340000&&!m.scramble)return fail(Step::Output,Result::PreconditionFailed,0,m.clockKHz);
   const auto pll=ReimsHdmiPll::compute(m.clockKHz);
   if(!pll.ok)return fail(Step::Output,Result::PreconditionFailed,0,m.clockKHz);
   // Never reprogram a running pipe or port.
@@ -165,15 +169,31 @@ public:
   if(r==Result::OK)r=rmw(Step::PipeChicken,R3::pipeChickenA,0,R3::pipeChickenBits);
   if(r==Result::OK)r=rmw(Step::MbusDbox,R3::mbusDboxA,R3::mbusDboxMask,R3::mbusDboxValue);
   // intel_ddi_enable: FUNC_CTL2, FUNC_CTL (HDMI, TC1, 8 bpc, sync polarity).
-  const uint32_t func=1U<<31|4U<<27|(m.vPos?1U<<17:0)|(m.hPos?1U<<16:0);
+  // TRANS_DDI_HDMI_SCRAMBLING (bit 0) and TRANS_DDI_HIGH_TMDS_CHAR_RATE
+  // (bit 4) for >340 MHz, matching the host's 4K60 func word 0xa0030011.
+  const uint32_t func=1U<<31|4U<<27|(m.vPos?1U<<17:0)|(m.hPos?1U<<16:0)|
+   (m.scramble?(1U<<0)|(1U<<4):0);
   if(r==Result::OK)r=write(Step::DdiFunc,R3::ddiFunc2A,0,0,true);
   if(r==Result::OK)r=write(Step::DdiFunc,R3::ddiFuncA,func,1,true);
   // intel_enable_transcoder: display 12 has a frame counter, so i915 does
   // not wait for the scanline here; the readback below checks the pipe runs.
   if(r==Result::OK)r=rmw(Step::TransEnable,R3::transConfA,0,R3::transEnable);
-  // intel_ddi_enable_hdmi: signal levels, lanes, buffer.
+  // intel_ddi_enable_hdmi: signal levels, lanes, SCDC, buffer.
   if(r==Result::OK)r=signalLevels();
   if(r==Result::OK)r=rmw(Step::PhyLanes,R3::clDw10,R3::pwrDownLanesMask,0); // 4 lanes, no reversal
+  // SCDC: set 1/40 bit-clock ratio and scrambling on the sink before the port
+  // buffer enables (intel_hdmi_handle_sink_scrambling). The dry run records a
+  // plan; the live I2C only runs in the execute build (it drives GMBUS).
+  if(r==Result::OK&&m.scramble){
+   if(!execute)record(Step::ScdcSetup,Action::Plan,R3::ddiBufTc1,0,1);
+   else{
+    ReimsSCDC::Scdc<IO> scdc(io);
+    const auto ss=scdc.setup(2,true,true);           // DDC pin 2 (HDMI-B)
+    const bool live=ss==ReimsSCDC::Status::OK&&scdc.scramblingStatus(2);
+    record(Step::ScdcSetup,live?Action::Write:Action::Fail,R3::ddiBufTc1,uint32_t(ss),live);
+    if(!live)r=Result::Unexpected;
+   }
+  }
   if(r==Result::OK)r=rmw(Step::DdiBuf,R3::ddiBufTc1,0,R3::ddiBufEnable);
   if(r==Result::OK)r=waitBits(Step::DdiBuf,R3::ddiBufTc1,R3::ddiBufIdle,0,10000);
   if(r!=Result::OK||!execute)return r==Result::OK?Result::Planned:r;

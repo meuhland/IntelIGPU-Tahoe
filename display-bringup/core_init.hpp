@@ -22,7 +22,7 @@ enum class Step:uint8_t {
  Output=32,PowerWell2,PowerWell3,DpllPower,DpllConfig,DpllEnable,DdiClock,
  DdiIoPower,TransClock,Infoframes,PipeSrc,PipeMisc,Timings,TransMult,
  FrameStart,TransConf,Linetime,PipeChicken,MbusDbox,DdiFunc,TransEnable,
- PhyKeeper,PhyLoadgen,PhySusClock,PhyTraining,PhySwing,PhyLanes,DdiBuf,
+ PhyKeeper,PhyLoadgen,PhySusClock,PhyTraining,PhySwing,PhyLanes,ScdcSetup,DdiBuf,
  Verify,
  // Stage 3b (hdmi_scanout.hpp).
  Scanout=64,DbufSlice2,PipeColor,Ggtt,PlaneConfig,PlaneWm,PlaneEnable,PlaneVerify};

@@ -8,7 +8,7 @@ STEPS = {1: 'Preconditions', 2: 'DCOff', 3: 'WaPchClockGate', 4: 'PchHandshake',
 STEPS.update({32 + i: n for i, n in enumerate(
     'Output PowerWell2 PowerWell3 DpllPower DpllConfig DpllEnable DdiClock DdiIoPower TransClock '
     'Infoframes PipeSrc PipeMisc Timings TransMult FrameStart TransConf Linetime PipeChicken MbusDbox '
-    'DdiFunc TransEnable PhyKeeper PhyLoadgen PhySusClock PhyTraining PhySwing PhyLanes DdiBuf Verify'.split())})
+    'DdiFunc TransEnable PhyKeeper PhyLoadgen PhySusClock PhyTraining PhySwing PhyLanes ScdcSetup DdiBuf Verify'.split())})
 STEPS.update({64 + i: n for i, n in enumerate(
     'Scanout DbufSlice2 PipeColor Ggtt PlaneConfig PlaneWm PlaneEnable PlaneVerify'.split())})
 ACTIONS = ['check', 'skip', 'PLAN', 'WRITE', 'FAIL']

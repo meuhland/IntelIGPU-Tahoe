@@ -266,6 +266,21 @@ refusals with no register write, and timeouts.
 the monitor: the test pattern at 3840×2160@30 (full-range RGB without an
 AVI infoframe, so the monitor may treat it as limited range).
 
+### SCDC scrambling for 4K60 (`hdmi_scdc.hpp`)
+
+Pixel clocks above 340 MHz (3840x2160@60 = 594 MHz) need HDMI 2.0
+scrambling. `ReimsSCDC::Scdc` writes the sink's TMDS_CONFIG (I2C slave 0x54
+over the same GMBUS/DDC pin) to set the 1/40 bit-clock ratio and
+scrambling, ported from `intel_hdmi_handle_sink_scrambling` and the drm
+SCDC helpers. `kUhd60` carries a `scramble` flag; `runOutput` then sets
+`TRANS_DDI_HDMI_SCRAMBLING` (bit 0) and `TRANS_DDI_HIGH_TMDS_CHAR_RATE`
+(bit 4) in the DDI func word (the host's 4K60 value `0xa0030011`) and runs
+SCDC setup before the DDI buffer enables. Clocks over 340 MHz without the
+flag are refused. The live I2C runs only in the execute build; the dry run
+records a plan. `test_hdmi_scdc.cpp` checks enable, disable and NAK;
+`test_hdmi_output.cpp` checks the 4K60 func word and the no-scramble
+refusal. The stage-3 kext lights 4K30 by default; 4K60 is a `kUhd60` build.
+
 ### EDID over GMBUS (`edid_read.hpp`)
 
 `ReimsEDID::Reader` reads the 128-byte base EDID from the monitor at I2C

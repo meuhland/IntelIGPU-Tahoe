@@ -30,3 +30,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_TARGET_RPLS \
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
  display-bringup/test_edid_read.cpp -o "$timing_test/test_edid_read"
 "$timing_test/test_edid_read"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
+ display-bringup/test_hdmi_scdc.cpp -o "$timing_test/test_hdmi_scdc"
+"$timing_test/test_hdmi_scdc"

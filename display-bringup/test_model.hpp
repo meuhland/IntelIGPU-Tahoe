@@ -13,8 +13,8 @@ struct Model {
  std::map<uint32_t,uint32_t> r;std::vector<std::pair<uint32_t,uint32_t>> writes;
  std::vector<uint32_t> pcodeCalls;uint64_t now=0;
  bool pwAck=true,fuseAck=true,pllLocks=true,dbufAck=true,pcodeHangs=false;
- bool ddiIoAck=true,dpllLocks=true,ddiBufActive=true,surfLatches=true;
- unsigned writes64=0;
+ bool ddiIoAck=true,dpllLocks=true,ddiBufActive=true,surfLatches=true,scdcNak=false;
+ unsigned writes64=0;uint8_t scdcTmds=0;uint32_t gmbus3=0;
  unsigned pcodeBusyReplies=0;uint32_t pcodeStatus=0;
  Model(){
   r[R::fuseStatus]=0x88000000;r[R::dssm]=0x40000020;r[R::dcStateEn]=0;
@@ -29,6 +29,8 @@ struct Model {
   auto i=r.find(a);uint32_t v=i==r.end()?0:i->second;
   // PIPEDSL A advances while transcoder A runs.
   if(a==0x70000&&(r[0x70008]&(1U<<30)))r[a]=v=(v+7)%2250;
+  if(a==0xc510c)return gmbus3;            // GMBUS3: staged SCDC read byte
+  if(a==0xc5108)return r[0xc5108];        // GMBUS2
   return v;
  }
  void delayUS(uint32_t us){now+=us;}
@@ -52,6 +54,21 @@ struct Model {
    v=(v&~(1U<<30))|((v&(1U<<31))?1U<<30:0);
   }else if(a==0x7019c){                            // PLANE_SURF 1A latches on a running pipe
    if(surfLatches&&(r[0x70180]&(1U<<31))&&(r[0x70008]&(1U<<30)))r[0x701ac]=v;
+  }else if(a==0xc510c){                            // GMBUS3 payload latch
+   gmbus3=v;return;
+  }else if(a==0xc5104){                            // GMBUS1 cycle
+   if(v&(4U<<25))return;                           // STOP
+   if(scdcNak){r[0xc5108]|=1U<<10;return;}         // SATOER
+   if(v&1U){                                       // indexed read
+    const uint8_t off=(v>>8)&0xff;
+    gmbus3 = off==0x20?scdcTmds : off==0x21?uint8_t((scdcTmds&1)?1:0):0;
+    r[0xc5108]|=1U<<11;                            // HW_RDY
+   }else{                                          // 2-byte write [off,val]
+    if((gmbus3&0xff)==0x20)scdcTmds=(gmbus3>>8)&0xff;
+    r[0xc5108]|=1U<<11;
+   }
+   return;
+  }else if(a==0xc5100||a==0xc5110){return;         // GMBUS0/GMBUS4: no-op
   }else if(a==0x64300){                            // DDI buffer TC1 idle until enabled
    v=(v&~(1U<<7))|((ddiBufActive&&(v&(1U<<31)))?0:1U<<7);
   }else if(a==R::cdclkPll){

@@ -56,7 +56,7 @@ int main(){
  {std::vector<uint64_t> bad=dma;bad[17]=0x123400800ULL;CHECK(refused({0x01000000,R4::pages,bad.data()},0));} // unaligned page
  CHECK(refused(fb,0x84000000));                                // plane already on
  {Model m;HdmiScanout<Model> s(m,true);                        // 3a mode must be 3840x2160
-  CHECK(s.runScanout({1920,2008,2052,2200,1080,1084,1089,1125,148500,60,true,true},fb)==Result::PreconditionFailed);
+  CHECK(s.runScanout({1920,2008,2052,2200,1080,1084,1089,1125,148500,60,true,true,false},fb)==Result::PreconditionFailed);
   CHECK(m.writes.empty());}
  // Timeouts.
  {Model m;m.surfLatches=false;HdmiScanout<Model> s(m,true);
