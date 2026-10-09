@@ -8,24 +8,22 @@
 #include <libkern/c++/OSString.h>
 #include <libkern/c++/OSSymbol.h>
 #include <libkern/c++/OSBoolean.h>
+#include "../../../common/reims_target.hpp"
 #include "profiles.hpp"
 
-static const char *const kPCIPath="IOService:/AppleACPIPlatformExpert/PC00/AppleACPIPCI/GFX0@2";
 static const char *const kTag="ReimsManualSessionPersonality";
 static bool isolatedADLP(IOPCIDevice *pci) {
     if (!pci || pci->isInactive()) return false;
     char path[512]; int size=sizeof(path);
-    if (!pci->getPath(path,&size,gIOServicePlane) || strcmp(path,kPCIPath)) return false;
+    if (!pci->getPath(path,&size,gIOServicePlane) || strcmp(path,ReimsTarget::kPCIPath)) return false;
     auto *device=OSDynamicCast(OSData,pci->getProperty("device-id"));
     const unsigned char isolated[]={0xff,0xff,0,0};
     return device && device->getLength()==sizeof(isolated) &&
         !memcmp(device->getBytesNoCopy(),isolated,sizeof(isolated)) &&
-        pci->configRead16(kIOPCIConfigVendorID)==0x8086 &&
-        pci->configRead16(kIOPCIConfigDeviceID)==0x46a3 &&
-        pci->configRead8(kIOPCIConfigRevisionID)==0x0c;
+        ReimsTarget::isExact(pci);
 }
 static IOPCIDevice *copyTarget() {
-    auto *entry=IORegistryEntry::fromPath(kPCIPath,nullptr);
+    auto *entry=IORegistryEntry::fromPath(ReimsTarget::kPCIPath,nullptr);
     auto *pci=OSDynamicCast(IOPCIDevice,entry);
     if (!isolatedADLP(pci)) { OSSafeReleaseNULL(entry); return nullptr; }
     return pci; // Own the fromPath reference.

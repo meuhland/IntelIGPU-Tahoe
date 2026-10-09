@@ -15,6 +15,7 @@
 #include "display_timing.hpp"
 #include <kern/clock.h>
 #include "flip_profile.hpp"
+#include "../../../common/reims_target.hpp"
 
 // Each standard IOFramebuffer interrupt registration owns its callback target.
 // Both IOGraphics and IOAccelDisplayPipe subscribe to 'vbl '; they must not
@@ -297,7 +298,7 @@ public:
   if(!a||!boot||!init())return false;
   stateLock=IORecursiveLockAlloc();if(!stateLock)return false;
   auto*p=OSDynamicCast(IOPCIDevice,a->getProvider());
-  if(!p||p->configRead16(kIOPCIConfigVendorID)!=0x8086||p->configRead16(kIOPCIConfigDeviceID)!=0x46a3||boot->getProvider()!=p)return false;
+  if(!ReimsTarget::kHardwareWritesPorted||!ReimsTarget::isDevice(p)||boot->getProvider()!=p)return false;
   IODisplayModeID m=0;IOIndex d=0;
   if(boot->getCurrentDisplayMode(&m,&d)||boot->getPixelInformation(m,d,kIOFBSystemAperture,&pixel)||
      boot->getInformationForDisplayMode(m,&modeInfo)||pixel.activeWidth!=1920||pixel.activeHeight!=1080||pixel.bytesPerRow!=7680||pixel.bitsPerPixel!=32)return false;

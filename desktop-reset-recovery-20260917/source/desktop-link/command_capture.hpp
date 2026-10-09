@@ -1,6 +1,6 @@
 #pragma once
 #include "capture_walk.hpp"
-// ADL-P 46a3 rev 0c only; called with native forcewake and no IOMapper.
+// Validated on ADL-P 46a3 rev 0c only (RPL-S unverified); called with native forcewake and no IOMapper.
 // CPU-visible diagnostic samples, never a GPU completion or ownership proof.
 namespace ReimsCommandCapture {
 constexpr uint64_t mask=0x00003ffffffff000ULL;

@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
+source ../../../scripts/target-flags.sh
 test -f profiles.hpp
 test -f deferred_uuid.hpp
 sdk=$(xcrun --sdk macosx --show-sdk-path)
@@ -12,7 +13,7 @@ for source in gate module; do
  -mkernel -fapple-kext -fno-builtin -fno-exceptions -fno-rtti -fno-stack-protector \
  -nostdinc++ -DKERNEL -DKERNEL_PRIVATE -isysroot "$sdk" -isystem "$headers" \
  -Wall -Wextra -Werror -Wno-error=deprecated-declarations \
- -c "$source.cpp" -o "build/$source.o"
+ ${target_flags[@]+"${target_flags[@]}"} -c "$source.cpp" -o "build/$source.o"
 done
 xcrun clang++ -arch x86_64 -mmacosx-version-min=13.0 -nostdlib -isysroot "$sdk" \
  -Wl,-kext -Wl,-undefined,dynamic_lookup build/gate.o build/module.o -lkmod -lkmodc++ \

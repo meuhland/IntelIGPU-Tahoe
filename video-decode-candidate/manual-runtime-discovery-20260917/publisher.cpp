@@ -6,6 +6,7 @@
 #include <libkern/c++/OSString.h>
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSBoolean.h>
+#include "../../common/reims_target.hpp"
 class ReimsVideoDiscovery:public IOService {
  OSDeclareDefaultStructors(ReimsVideoDiscovery)
  OSDictionary *saved=nullptr,*published=nullptr;
@@ -26,10 +27,7 @@ public:
   // Registry device-id is intentionally FFFF for boot isolation. Verify the
   // actual PCI function without changing the isolated registry identity.
   auto*pci=OSDynamicCast(IOPCIDevice,p->getProvider());
-  if(!pci||pci->isInactive()||
-     pci->configRead16(kIOPCIConfigVendorID)!=0x8086||
-     pci->configRead16(kIOPCIConfigDeviceID)!=0x46a3||
-     pci->configRead8(kIOPCIConfigRevisionID)!=0x0c)return false;
+  if(!pci||pci->isInactive()||!ReimsTarget::isExact(pci))return false;
   auto*props=OSDynamicCast(OSDictionary,getProperty("VideoProperties"));if(!props)return false;
   saved=OSDictionary::withCapacity(16);published=OSDictionary::withDictionary(props);
   if(!saved||!published)return false;

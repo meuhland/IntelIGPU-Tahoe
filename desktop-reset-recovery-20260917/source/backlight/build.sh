@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
+if [ "${REIMS_TARGET:-adlp}" != adlp ]; then
+    echo "ReimsADLBacklight drives the ADL-P internal panel; skipped for REIMS_TARGET=${REIMS_TARGET}" >&2
+    exit 0
+fi
 
 sdk=$(xcrun --sdk macosx --show-sdk-path)
 headers="$sdk/System/Library/Frameworks/Kernel.framework/Headers"

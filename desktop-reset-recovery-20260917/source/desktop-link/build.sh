@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
+source ../../../scripts/target-flags.sh
 
 # Validate private map getter slots against the binary this kext accompanies.
 python3 ../tools/verify_tgl_map_abi.py "${REIMS_TGL_IMAGE:?Set REIMS_TGL_IMAGE to your locally obtained, ABI-compatible TGL kernel image}"
@@ -15,7 +16,8 @@ for source in ReimsADLDesktopLink graphics_control intel_framebuffer module; do
         -mkernel -fapple-kext -fno-builtin -fno-exceptions -fno-rtti \
         -fno-stack-protector -nostdinc++ -DKERNEL -DKERNEL_PRIVATE \
         -isysroot "$sdk" -isystem "$headers" -Wall -Wextra -Werror \
-        -Wno-error=deprecated-declarations -c "$source.cpp" -o "build/$source.o"
+        -Wno-error=deprecated-declarations ${target_flags[@]+"${target_flags[@]}"} \
+        -c "$source.cpp" -o "build/$source.o"
 done
 
 xcrun clang++ -O2 -g -arch x86_64 -mmacosx-version-min=13.0 -nostdlib \

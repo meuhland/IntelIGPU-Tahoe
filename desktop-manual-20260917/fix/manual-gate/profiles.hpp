@@ -1,4 +1,5 @@
-// Generated from the hash-checked approved runtime. Do not edit.
+// Generated from the hash-checked approved runtime. Do not edit, except that
+// revision-id is spliced from common/reims_target.hpp (REIMS_REVISION_B64).
 static const char selftest_profiles[] = R"REIMS(<array>
 	<dict>
 		<key>CFBundleIdentifier</key>
@@ -17,7 +18,7 @@ static const char selftest_profiles[] = R"REIMS(<array>
 			</data>
 			<key>revision-id</key>
 			<data>
-			DAAAAA==
+			)REIMS" REIMS_REVISION_B64 R"REIMS(
 			</data>
 			<key>vendor-id</key>
 			<data>
@@ -123,7 +124,7 @@ static const char runtime_profiles[] = R"REIMS(<array>
 			</data>
 			<key>revision-id</key>
 			<data>
-			DAAAAA==
+			)REIMS" REIMS_REVISION_B64 R"REIMS(
 			</data>
 			<key>vendor-id</key>
 			<data>

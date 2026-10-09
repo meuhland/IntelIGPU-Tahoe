@@ -12,14 +12,13 @@
 #include "graphics_control.hpp"
 #include "intel_framebuffer.hpp"
 #include "reset_registry.hpp"
+#include "../../../common/reims_target.hpp"
 
 // Native TGL's exported, locked/refcounted forcewake API. The bundle explicitly
 // depends on that driver; never compete for its hardware request bit directly.
 extern "C" void ReimsNativeSafeForceWake(IOService*,bool,unsigned)
  __asm__("__ZN16IntelAccelerator13SafeForceWakeEbj");
 namespace {
-constexpr uint32_t kIntelVendor = 0x8086;
-constexpr uint32_t kADLP46A3 = 0x46a3;
 constexpr uint32_t kRcsBase = 0x02000;
 constexpr uint32_t kBcsBase = 0x22000;
 constexpr uint32_t kRingPSMI = 0x50;
@@ -147,9 +146,7 @@ class ReimsADLDesktopLink : public IOService {
   removeProperty("RPSSnapshotV1");
   auto *accel=getProvider();
   auto *pci=accel?OSDynamicCast(IOPCIDevice,accel->getProvider()):nullptr;
-  if(!accel||accel->isInactive()||!pci||
-     pci->configRead16(kIOPCIConfigVendorID)!=kIntelVendor||
-     pci->configRead16(kIOPCIConfigDeviceID)!=kADLP46A3)return kIOReturnNotReady;
+  if(!accel||accel->isInactive()||!ReimsTarget::isDevice(pci))return kIOReturnNotReady;
   auto *map=pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0,kIOMapInhibitCache);
   if(!map)return kIOReturnNoMemory;
   // Gen12/ADLP read-only, fixed registers. Keep native forcewake ownership;
@@ -291,8 +288,7 @@ class ReimsADLDesktopLink : public IOService {
   BCSSnapshotV1 r={};r.version=1;r.action=0;
   IOService *accel=getProvider();
   auto *pci=accel?OSDynamicCast(IOPCIDevice,accel->getProvider()):nullptr;
-  if(!pci||pci->isInactive()||pci->configRead16(kIOPCIConfigVendorID)!=kIntelVendor||
-     pci->configRead16(kIOPCIConfigDeviceID)!=kADLP46A3||
+  if(!pci||pci->isInactive()||!ReimsTarget::isDevice(pci)||
      !(pci->configRead16(kIOPCIConfigCommand)&2)){r.result=10;return publishBCS(r,kIOReturnNotReady);}
   auto *map=pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0,kIOMapInhibitCache);
   if(!map){r.result=11;return publishBCS(r,kIOReturnNoMemory);}
@@ -342,11 +338,14 @@ class ReimsADLDesktopLink : public IOService {
   }
   IOService *accel=getProvider();
   auto *pci=accel?OSDynamicCast(IOPCIDevice,accel->getProvider()):nullptr;
-  if(!pci||pci->isInactive()||pci->configRead16(kIOPCIConfigVendorID)!=kIntelVendor||
-     pci->configRead16(kIOPCIConfigDeviceID)!=kADLP46A3||
+  if(!pci||pci->isInactive()||!ReimsTarget::isDevice(pci)||
      !(pci->configRead16(kIOPCIConfigCommand)&2)){r.result=10;return publishRCS(r,kIOReturnNotReady);}
-  if(pci->configRead8(kIOPCIConfigRevisionID)!=0x0c){
+  if(pci->configRead8(kIOPCIConfigRevisionID)!=ReimsTarget::kRevision){
    r.result=17;return publishRCS(r,kIOReturnUnsupported);
+  }
+  // The PSMI workaround is ADL-P specific; capture remains read-only elsewhere.
+  if(applyWorkaround&&!ReimsTarget::kHardwareWritesPorted){
+   r.result=20;return publishRCS(r,kIOReturnUnsupported);
   }
   auto *map=pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0,kIOMapInhibitCache);
   if(!map){r.result=11;return publishRCS(r,kIOReturnNoMemory);}
@@ -511,7 +510,7 @@ class ReimsADLDesktopLink : public IOService {
   IOService *accel=getProvider();
   if(!accel || accel->isInactive())return kIOReturnNotReady;
   auto *pci=OSDynamicCast(IOPCIDevice,accel->getProvider());
-  if(!pci||pci->configRead16(kIOPCIConfigVendorID)!=kIntelVendor||pci->configRead16(kIOPCIConfigDeviceID)!=kADLP46A3)return kIOReturnUnsupported;
+  if(!ReimsTarget::isDevice(pci))return kIOReturnUnsupported;
   IOService *fb=nullptr;
   auto *it=pci->getChildIterator(gIOServicePlane);if(!it)return kIOReturnNoMemory;
   while(auto *obj=it->getNextObject()){
@@ -553,6 +552,8 @@ class ReimsADLDesktopLink : public IOService {
   setProperty("ObservationLink",observeUnprepared);return kIOReturnSuccess;
  }
  IOReturn nativeFramebuffer(){
+  // Takeover programs ADL-P plane/DPT registers; refuse until ported.
+  if(!ReimsTarget::kHardwareWritesPorted)return kIOReturnUnsupported;
   return route(true,false,true);
  }
 public:
@@ -563,10 +564,14 @@ public:
   setProperty("Linked",false);setProperty("ObservationLink",false);
   setProperty("RCSADLPWorkaroundPrepared",false);
   setProperty("RCSADLPWorkaroundLive",false);
-  setProperty("BCSProbePolicy","read-only-exact-46a3-no-ring-control-write");
-  setProperty("RCSProbePolicy","read-only-capture-or-explicit-idle-masked-Wa_1607297627-exact-46a3");
+  setProperty("BCSProbePolicy","read-only-exact-target-no-ring-control-write");
+  setProperty("RCSProbePolicy",ReimsTarget::kHardwareWritesPorted?
+   "read-only-capture-or-explicit-idle-masked-Wa_1607297627-exact-target":
+   "read-only-capture-only-workaround-not-ported");
+  setProperty("ReimsTargetDevice",uint64_t(ReimsTarget::kDevice),16);
+  setProperty("ReimsHardwareWritesPorted",ReimsTarget::kHardwareWritesPorted);
   setProperty("ReimsForceWakeOwnership","native-refcounted");
-  setProperty("ReimsBacklightAttached",ReimsAttachBacklight(getProvider()));
+  setProperty("ReimsBacklightAttached",ReimsTarget::kInternalPanel&&ReimsAttachBacklight(getProvider()));
   registerService();return true;
  }
  IOReturn setProperties(OSObject *props) override {
