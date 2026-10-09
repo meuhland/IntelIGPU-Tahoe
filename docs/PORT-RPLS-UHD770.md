@@ -73,6 +73,29 @@ They look like Apple-internal builds rather than public releases: provenance
 and redistribution rights are unverified, and a hash match only proves it is
 the file upstream used. Never commit these binaries to this repository.
 
+Checked 2026-10-09 (NootedGreen `95f8189`; macintelk/drm has the same blobs,
+and neither repo's history has another version):
+
+| Copy | Bundle identifier | SHA-256 |
+|---|---|---|
+| `sle_Internal/sle` | `com.apple.driver.AppleIntelTGLGraphics` | `890735a9…27ac` |
+| `sle_Internal/le` | `com.xxxxx.driver.AppleIntelTGLGraphics` | `1b2f5aa3…15a2` |
+
+Neither matches upstream's hash. Both are 1,825,024 bytes with LC_UUID
+`ba3aa1c0fe6b33b39d8573f848394e3d`. They differ only in the signing
+identifier inside the code signature (10 bytes), so they are one build. Both
+pass every check in `prepare-deferred-runtime.py` (`IntelAccelerator::start`
+at `0x23ecc`, vtable `+0x5b0` → `registerService`, call bytes at `0x246b5`)
+and in `verify_tgl_map_abi.py`. Upstream's input is most likely the same build
+with a different signature; that is inferred, not proven.
+
+The port uses `sle`: its identifier matches the gate profiles, and
+`prepare-deferred-runtime.py` accepts its hash next to upstream's. Running
+that script with it regenerates `manual-gate/deferred_uuid.hpp` and
+`deferred-runtime.json`; a scratch run gave candidate UUID
+`edbb0eb480dfe8e487eca25a0221af9a`. The Metal user-space files are in the same
+`sle` folder and are not yet hash-checked against upstream's pins.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.

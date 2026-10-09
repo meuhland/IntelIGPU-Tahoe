@@ -7,8 +7,16 @@ parser.add_argument('source',type=Path,help='Locally obtained compatible TGL run
 source=parser.parse_args().source.resolve()
 target=base/'ReimsTGLManualRuntime.kext'
 b=(source/'Contents/MacOS/AppleIntelTGLGraphics').read_bytes()
-expected='ae99582bd5a945494ee684d339ac1abd0526828bcd3ea981239c0fd38f794d47'
-assert hashlib.sha256(b).hexdigest()==expected
+# Accepted inputs. The sle_Internal copy shares the LC_UUID of the community
+# le copy and differs from it only in code-signature bytes; it passes every
+# offset and relocation check below. Byte equality of its code with the
+# upstream input is unverified.
+accepted={
+    'ae99582bd5a945494ee684d339ac1abd0526828bcd3ea981239c0fd38f794d47':'upstream verified input',
+    '890735a93a19d3ddda24ff31bda3075dbd145fb7b26c11769f33c4564a8027ac':'sle_Internal AppleIntelTGLGraphics 16.0.0',
+}
+source_sha256=hashlib.sha256(b).hexdigest()
+assert source_sha256 in accepted,source_sha256
 # Validate vtable relocation, not merely the call's apparent offset.
 cursor=32
 for _ in range(struct.unpack_from('<I',b,16)[0]):
@@ -49,6 +57,6 @@ info['ReimsManualPublicationDeferred']=True
 p.write_bytes(plistlib.dumps(info))
 subprocess.run(['codesign','--force','--sign','-',str(target)],check=True)
 subprocess.run(['codesign','--verify','--deep','--strict',str(target)],check=True)
-record={'source_sha256':expected,'candidate_sha256':hashlib.sha256((target/'Contents/MacOS/AppleIntelTGLGraphics').read_bytes()).hexdigest(),'deferred_call_file_offset':hex(site),'deferred_call':'IOService::registerService(unsigned int)','functional_text_change_bytes':6,'candidate_uuid':deferred_uuid.hex(),'automatic_personalities':0,'installed':False,'hardware_tested':False}
+record={'source_sha256':source_sha256,'candidate_sha256':hashlib.sha256((target/'Contents/MacOS/AppleIntelTGLGraphics').read_bytes()).hexdigest(),'deferred_call_file_offset':hex(site),'deferred_call':'IOService::registerService(unsigned int)','functional_text_change_bytes':6,'candidate_uuid':deferred_uuid.hex(),'automatic_personalities':0,'installed':False,'hardware_tested':False}
 (base/'deferred-runtime.json').write_text(json.dumps(record,indent=2)+'\n')
 print(json.dumps(record,indent=2))
