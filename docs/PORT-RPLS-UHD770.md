@@ -46,10 +46,11 @@ host board MSI (IGD subsystem `1462:7e03`).
   (and no `hostpci` entry for the IGD).
 - **Host ownership.** With raw `args:` Proxmox no longer rebinds the device.
   The host uses the IGD for LXC QuickSync (`i915`), so it is not bound to
-  `vfio-pci` at boot; a VM hookscript unbinds `i915` and binds `vfio-pci`
-  in `pre-start` (refusing if `/dev/dri` for the IGD is open) and returns it
-  to `i915` in `post-stop` (`scripts/proxmox-igpu-hookscript.sh`). The macOS
-  VM and LXC QuickSync cannot use the IGD at the same time.
+  `vfio-pci` at boot. The VM hookscript `proxmox/igpu-hookscript.sh` stops
+  the containers that pass through `/dev/dri`, unbinds `i915` and binds
+  `vfio-pci` in `pre-start`, then returns the IGD to `i915` and restarts those
+  containers in `post-stop`; any failure aborts the VM start and gives the IGD
+  back. The macOS VM and LXC QuickSync cannot use the IGD at the same time.
 - **Guest view.** `8086:a780` rev `04`, class `0x038000` (the host BIOS makes
   the dGPU primary), at `IOService:/AppleACPIPlatformExpert/PCI0/AppleACPIPCI/S10@2`
   with an `IONDRVFramebuffer` attached. QEMU's DSDT names it `\_SB.PCI0.S10`

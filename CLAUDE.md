@@ -59,7 +59,7 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   (`NativeHEVCVA`) are unverified. Table in docs/PORT-RPLS-UHD770.md.
 - Guest placement verified (VM 113, PVE 9.2 / QEMU 11.1.1): IGD at `00:02.0`
   via raw `args:` (Proxmox `hostpci` puts it behind a root port), host
-  switches `i915` ↔ `vfio-pci` with `scripts/proxmox-igpu-hookscript.sh`
+  switches `i915` ↔ `vfio-pci` with `proxmox/igpu-hookscript.sh`
   because the host uses the IGD for LXC QuickSync. Guest path
   `.../PCI0/AppleACPIPCI/S10@2`; rpls default gate path assumes the OpenCore
   rename to `GFX0@2` (patch table in docs/PORT-RPLS-UHD770.md). Gate rebuilt.
