@@ -104,11 +104,33 @@ guest kernel (including the TGL kext) from the host.
 
 ## Open items
 
-1. Record the firmware display state (DDI, transcoder, DPLL) read-only.
-   (`GFX0` rename, SIP and `ffff` isolation boot: done.)
-2. Port `display_timing.hpp` decode for the RPL-S clock/PLL registers.
+1. Read-only display probe: a small kext that maps `GFX0` BAR0, captures
+   the `ReimsDisplayTiming` snapshot, decodes every transcoder and publishes
+   the raw pairs and results. (`GFX0` rename, SIP and `ffff` isolation boot:
+   done.) Expect idle hardware until phase 5 lights the firmware display.
+2. Done: `display_timing.hpp` RPL-S decoder (below).
 3. Port takeover: remove DPT handling, generalize 1920×1080 constants.
 4. GT1 (32 EU) topology and workarounds in the native TGL runtime.
+
+## RPL-S display timing decode
+
+`display_timing.hpp` keeps the ADL-P decoder verbatim for `adlp` builds
+(`intel_framebuffer.o` text and strings identical) and adds an RPL-S decoder
+under `REIMS_TARGET_RPLS`, checked against Linux i915 v7.2:
+
+| | ADL-P (upstream) | RPL-S |
+|---|---|---|
+| Display version | 13 | 12 (ADL-S descriptor; `a780` in `INTEL_RPLS_IDS`) |
+| Route | transcoder A, DDI A, eDP | transcoders A–D; ports A, TC1–TC4 (3–6) on PHYs A–E |
+| Clock select | `0x164280` bits 1:0 | `0x164280` (PHY A–C) / `0x1642bc` (D–E), 2 bits at `(phy%3)*2`; clock-off bits 10/11/24/4/5 |
+| PLLs | DPLL0–1 | DPLL0–3: enable `0x46010/14/18/30`, CFGCR0 `0x164284/8c/94/c0` (DPLL2 uses the DPLL4 registers) |
+| Output | DP SST | DP SST, or HDMI/DVI: pixel = port × 8 / bpc, ×2 for YCbCr 4:2:0 |
+
+Reference clock (`0x51004`), the 38.4 MHz fraction workaround (#22010492432,
+display 12+), the PLL formula and `TRANS_MULT` follow i915 unchanged.
+`decode(s, t, m)` decodes one transcoder; `decode(s, m)` returns the first
+enabled one. `scripts/test.sh` runs `test_display_timing.cpp` (HDMI and DP
+vectors over DPLL0/2/3 and PHYs A/C/D, plus failure cases).
 
 ## Apple TGL binary source
 

@@ -70,8 +70,12 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
 - Done (phase 3): ffff isolation boot verified; `GFX0` registry `device-id`
   is `<ffff0000>`, `IONDRVFramebuffer` attached, no Intel graphics kext loaded.
   Config backups `config.plist.bak-20261009-*` sit next to the guest config.
-- Next (phase 4): port `display_timing.hpp` decode for RPL-S and read the
-  firmware display state read-only (needs a probe kext: go-ahead + snapshot).
+- Phase 4 decoder done: `display_timing.hpp` decodes RPL-S (transcoders
+  A–D, ports A/TC1–TC4, DPLL0–3, DP SST and HDMI) under `REIMS_TARGET_RPLS`;
+  adlp unchanged; host test in `scripts/test.sh`. The iGPU is currently
+  detached from the VM (back on the host's LXC).
+- Next (phase 4): read-only display probe kext (maps BAR0, captures and
+  decodes); loading it needs the iGPU re-attached, go-ahead + snapshot.
 
 ## Working rules
 
