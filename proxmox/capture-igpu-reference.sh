@@ -25,8 +25,11 @@ for c in /sys/class/drm/card*-*; do
     for f in status enabled modes; do
         [ -r "$c/$f" ] && { echo "== $f"; cat "$c/$f"; } >> "$out/connector-$name.txt"
     done
-    [ -s "$c/edid" ] && cat "$c/edid" > "$out/edid-$name.bin"
+    # sysfs reports edid as size 0; read it and keep only non-empty copies.
+    cat "$c/edid" > "$out/edid-$name.bin" 2>/dev/null
 done
+
+find "$out" -name 'edid-*.bin' -size 0 -delete
 
 # i915 debugfs state for this device.
 mountpoint -q /sys/kernel/debug || mount -t debugfs none /sys/kernel/debug

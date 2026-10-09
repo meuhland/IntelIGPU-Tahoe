@@ -19,7 +19,9 @@ struct Model {
   // Guest idle state measured by the phase 4 probe.
   r[R::fuseStatus]=0x88000000;r[R::dssm]=0x40000020;r[R::dcStateEn]=0;
   r[R::pwrWellDriver]=0;r[R::cdclkPll]=0;r[R::cdclkCtl]=0x00380000;
-  for(uint32_t b:R::phyBase){r[b+R::compDw3]=1U<<24;r[b+R::txDw8Ln0]=0x00001234;r[b+R::pcsDw1Ln0]=0x00300000|0x55;}
+  // COMP_DW3 as read on the host (0.85V dot0; masters A and D differ).
+  for(unsigned p=0;p<5;++p){const uint32_t b=R::phyBase[p];
+   r[b+R::compDw3]=(p==0||p==3)?0xc0606321:0xc0608021;r[b+R::txDw8Ln0]=0x00001234;r[b+R::pcsDw1Ln0]=0x00300000|0x55;}
   r[R::phyMiscA]=R::deIoCompPwrDown;
  }
  uint32_t read(uint32_t a){auto i=r.find(a);return i==r.end()?0:i->second;}
@@ -71,7 +73,7 @@ int main(){
   for(unsigned p=0;p<5;++p){
    const uint32_t b=R::phyBase[p];
    CHECK(m.read(b+R::compDw0)&R::compInit);CHECK(m.read(b+R::clDw5)&R::clPowerDownEnable);
-   CHECK(m.read(b+R::compDw9)==0x86E172C7&&m.read(b+R::compDw10)==0x77CA5EAB); // 0.95V dot0
+   CHECK(m.read(b+R::compDw9)==0x62AB67BB&&m.read(b+R::compDw10)==0x51914F96); // 0.85V dot0, as on the host
    CHECK(bool(m.read(b+R::compDw8)&R::irefgen)==(p==0||p==3));
    CHECK((m.read(b+R::txDw8Ln0)&(R::odccClkSel|R::odccDivMask))==(R::odccClkSel|R::odccDiv2));
    CHECK(!(m.read(b+R::pcsDw1Ln0)&R::dccModeMask)&&(m.read(b+R::pcsDw1Ln0)&0x55)==0x55);
@@ -93,6 +95,10 @@ int main(){
  // pcode answers "not ready" a few times before accepting.
  {Model m;m.pcodeBusyReplies=5;CoreInit<Model> c(m,true);
   CHECK(c.run()==Result::OK);CHECK(m.pcodeCalls.size()==7);}
+ // Other procmon codes select their own table row (0.95V dot0 here).
+ {Model m;for(uint32_t b:R::phyBase)m.r[b+R::compDw3]=1U<<24;CoreInit<Model> c(m,true);
+  CHECK(c.run()==Result::OK);
+  for(uint32_t b:R::phyBase)CHECK(m.read(b+R::compDw9)==0x86E172C7&&m.read(b+R::compDw10)==0x77CA5EAB);}
  // A CDCLK PLL left at another ratio is disabled before relocking at 16.
  {Model m;m.r[R::cdclkPll]=R::pllEnable|R::pllLock|9;CoreInit<Model> c(m,true);
   CHECK(c.run()==Result::OK);CHECK(m.read(R::cdclkPll)==0xc0000010);

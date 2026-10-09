@@ -92,7 +92,9 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
 - Stage 2 code done, not run on hardware: `display-bringup/`
   (`core_init.hpp`, `ReimsDisplayBringup.kext`, dry run by default,
   `REIMS_BRINGUP_EXECUTE=1` for the writing build; host test in
-  `scripts/test.sh`). Deviations from i915 listed in the phase 5 doc.
+  `scripts/test.sh`). Deviations from i915 listed in the phase 5 doc. All 55
+  stage 2 target values match host i915's live state (second capture
+  `igpu-reference-20261009-143055`); PHYs report 0.85 V dot0.
 - Next: iGPU window: load the dry run, read the plan; then (go-ahead +
   snapshot) the execute build and compare with the host reference. Then
   stage 3 (HDMI TC1 at 1080p60 or 4K30).

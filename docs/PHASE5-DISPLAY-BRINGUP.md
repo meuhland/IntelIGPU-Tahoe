@@ -131,14 +131,21 @@ the host reference (`CDCLK_CTL` `0x00380264`, `BXT_DE_PLL_ENABLE`
   first timeout or unexpected readback stops the run. Result and log:
   `display-bringup/read_bringup.py`.
 
+Checked against the second host capture
+(`~/work/igpu-notes/igpu-reference-20261009-143055/`): all 55 stage 2 targets
+match host i915's live values, including the combo PHY A–E procmon writes for
+the measured 0.85 V dot0 process code (`COMP_DW3` `0xc0606321` on masters A/D,
+`0xc0608021` elsewhere), IREFGEN on A and D only, MBUS credits, and the
+DCPR and PCH workarounds. Host i915 also disables the BW buddy
+(`BW_BUDDY_CTL(1/2)` = `0x80000000`), the same path the port takes.
+
 Deliberate differences from i915:
 
 - DC states are only verified off (`gen9_set_dc_state` is not ported; no DMC).
 - CDCLK goes straight to the reference's 307.2 MHz (voltage level 0) instead
   of the 172.8 MHz minimum followed by a modeset raise.
 - BW buddy takes i915's unknown-memory path (`BW_BUDDY_DISABLE`), since the
-  guest cannot read DRAM type; capture `BW_BUDDY_CTL/PAGE_MASK` from the host
-  to replicate its value later.
+  guest cannot read DRAM type; host i915 does the same on this machine.
 - Unknown combo PHY voltage/process codes and any pcode error status abort,
   where i915 warns and continues.
 - DBUF slice S2 stays off, as in i915's core init; the modeset enables it.
