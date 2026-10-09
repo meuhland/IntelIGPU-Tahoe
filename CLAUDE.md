@@ -32,14 +32,20 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   `common/reims_target.hpp`; kernel builds select it via `REIMS_TARGET=rpls`
   (`scripts/target-flags.sh`); default `adlp` keeps upstream unchanged. On rpls,
   register-writing paths (native framebuffer takeover, RCS PSMI workaround) are
-  refused; read-only probes remain. Not yet compiled against the macOS SDK.
+  refused; read-only probes remain.
+- Compile-checked (SDK 26.5, Apple clang 21): the gate and VideoDiscovery build
+  clean with `-Werror` for both targets. rpls binaries carry 0xa780/rev 0x04,
+  `BAAAAA==` and the rpls path; `REIMS_PCI_PATH` overrides it. adlp matches the
+  pre-port 9baa4bb build (identical strings and VideoDiscovery text; the gate
+  only outlines `ReimsTarget::isExact`). Nothing loaded or run on hardware.
 - KDK: no 22H730 (13.7.8) KDK was ever published; newest Ventura KDK is
   22H722 (13.7.7). Find the Ventura KDK whose AppleIntelTGLGraphics matches
   SHA-256 `ae99582bd5a945494ee684d339ac1abd0526828bcd3ea981239c0fd38f794d47`
-  (try 22H722, then 22G builds). Expand with `pkgutil --expand-full` after
+  (22H722 has no AppleIntelTGLGraphics; earlier Ventura KDKs are unchecked,
+  see docs/PORT-RPLS-UHD770.md). Expand with `pkgutil --expand-full` after
   `pkgutil --check-signature`; do not install. A different hash means the
   prepare-deferred-runtime.py offsets and ABI checks must be re-derived.
-- Next: compile the gate and VideoDiscovery with `REIMS_TARGET=rpls`; build
+- Next: once the TGL binary is found, build
   DesktopLink with `REIMS_TGL_IMAGE`; boot with ffff isolation and record the
   guest's real IOService path for GFX0 (`ioreg -p IOService -t -w0`) to pin
   `REIMS_PCI_PATH`.
