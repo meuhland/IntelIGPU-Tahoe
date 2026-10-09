@@ -74,10 +74,14 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   A–D, ports A/TC1–TC4, DPLL0–3, DP SST and HDMI) under `REIMS_TARGET_RPLS`;
   adlp unchanged; host test in `scripts/test.sh`. The iGPU is currently
   detached from the VM (back on the host's LXC).
-- Read-only probe built: `display-probe/` (`ReimsDisplayProbe.kext`,
-  `read_probe.py`); not yet loaded.
-- Next (phase 4): re-attach the iGPU, snapshot, load the probe and record the
-  firmware display state (go-ahead first; see docs/PORT-RPLS-UHD770.md).
+- Done (phase 4): `display-probe/` (`ReimsDisplayProbe.kext`, approved on
+  the guest; `read_probe.py`) read the IGD through passthrough without
+  faults. Display engine fully unpowered (only PG0, no power wells, PLLs off,
+  all DDI clocks gated); reference clock 38.4 MHz. Results table in
+  docs/PORT-RPLS-UHD770.md. sudo on the guest needs the user's password.
+- Next (phase 5 planning): get a firmware-lit display on the IGD (IGD primary
+  in host BIOS, which affects the Proxmox host, + IgdAssignmentDxe/GOP option
+  ROM) or design a full display bring-up. Decide with the user first.
 
 ## Working rules
 

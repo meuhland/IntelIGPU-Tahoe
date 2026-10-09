@@ -104,10 +104,13 @@ guest kernel (including the TGL kext) from the host.
 
 ## Open items
 
-1. Run the read-only display probe on the guest (built, not yet loaded;
-   see below). Expect idle hardware until phase 5 lights the firmware
-   display. (`GFX0` rename, SIP and `ffff` isolation boot: done.)
+1. Done: read-only display probe run on the guest (results below).
 2. Done: `display_timing.hpp` RPL-S decoder (below).
+3. Phase 5 prerequisite: a firmware-initialised display. Either the guest
+   firmware lights the IGD (IGD primary in the host BIOS + an
+   `IgdAssignmentDxe` + Intel GOP option ROM), or the port gains a full
+   display bring-up (power wells, CDCLK, DPLL, PHY, link training), which
+   upstream never needed.
 3. Port takeover: remove DPT handling, generalize 1920×1080 constants.
 4. GT1 (32 EU) topology and workarounds in the native TGL runtime.
 
@@ -152,7 +155,28 @@ Run (iGPU attached, fresh snapshot, user go-ahead):
 
 A first load of a new kext needs approval in System Settings → Privacy &
 Security and a reboot; then load again. `kmutil` also wants the bundle
-owned by `root:wheel`.
+owned by `root:wheel`, so stage a copy first:
+`sudo ditto …/ReimsDisplayProbe.kext /private/tmp/ReimsDisplayProbe.kext &&
+sudo chown -R root:wheel /private/tmp/ReimsDisplayProbe.kext`.
+
+### Result 2026-10-09 (VM 113, IGD at `00:02.0`, OVMF without IGD ROM)
+
+Loaded and read without faults: identity verified, `PCICommand` `0x7`, no
+all-ones reads. The display engine is unpowered and unconfigured:
+
+| Register | Value | Meaning |
+|---|---|---|
+| `DSSM` `0x51004` | `0x40000020` | reference clock 38.4 MHz (fraction WA applies) |
+| `FUSE_STATUS` `0x42000` | `0x88000000` | fuses loaded; only PG0 distributed |
+| `PWR_WELL_CTL1/2` | `0` / `0` | no BIOS or driver power-well requests |
+| `DC_STATE_EN` | `0` | no DC states |
+| `DPCLKA_CFGCR0/1` | `0x01e07c00` / `0x00000030` | clock-off set for PHYs A–E |
+| `DPLL0–3_ENABLE` | `0` | all PLLs off (CFGCR hold identical stale values) |
+| `DDI_BUF_CTL`, `TRANS_*`, `TRANSCONF`, `PLANE_CTL_1` | `0` | no port, pipe or plane enabled |
+
+All four transcoders decode as `Disabled`. Nothing initialised the display:
+OVMF had no IGD option ROM and the host's `i915` left it powered down on
+unbind. Raw dump: `~/work/igpu-notes/display-probe-20261009.{txt,plist}`.
 
 ## Apple TGL binary source
 
