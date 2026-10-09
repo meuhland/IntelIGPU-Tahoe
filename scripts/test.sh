@@ -27,3 +27,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_DISPLAY_BRINGUP=1 -DREIMS
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror -DREIMS_TARGET_RPLS \
  display-bringup/test_avi_infoframe.cpp -o "$timing_test/test_avi_infoframe"
 "$timing_test/test_avi_infoframe"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
+ display-bringup/test_edid_read.cpp -o "$timing_test/test_edid_read"
+"$timing_test/test_edid_read"

@@ -13,6 +13,7 @@
 #endif
 #if REIMS_BRINGUP_STAGE==3
 #include "hdmi_scanout.hpp"
+#include "edid_read.hpp"
 #elif REIMS_BRINGUP_STAGE==2
 #include "core_init.hpp"
 #else
@@ -128,6 +129,24 @@ class ReimsDisplayBringup:public IOService {
   planeOn=kExecute&&(io.read(ReimsBringup::R4::planeCtl)&(1U<<31));
   if(!planeOn){fbMemory->complete();OSSafeReleaseNULL(fbMemory);}
   setProperty("ReimsBringupPlaneOn",planeOn);
+  // Read the monitor's EDID over GMBUS (DDC pin 2 = HDMI-B per the VBT). This
+  // drives the PCH I2C engine via GMBUS control-register writes, so it only
+  // runs in the execute build; the dry run cannot move the bus.
+  if(kExecute){
+   ReimsEDID::Reader<BarIO> ddc(io);ReimsEDID::Edid e;
+   const auto es=ddc.read(2,e);
+   setProperty("ReimsEDIDStatus",uint64_t(es),32);
+   if(es==ReimsEDID::Status::OK){
+    setProperty("ReimsEDIDVendor",e.vendor);
+    setProperty("ReimsEDIDProduct",uint64_t(e.product),32);
+    setProperty("ReimsEDIDVersion",uint64_t(e.version)<<8|e.revision,32);
+    setProperty("ReimsEDIDPreferredHActive",uint64_t(e.prefHActive),32);
+    setProperty("ReimsEDIDPreferredVActive",uint64_t(e.prefVActive),32);
+    setProperty("ReimsEDIDPreferredPixelClockKHz",uint64_t(e.prefPixelClockKHz),32);
+    setProperty("ReimsEDIDExtensions",uint64_t(e.extensions),32);
+    if(auto*d=OSData::withBytes(e.raw,sizeof(e.raw))){setProperty("ReimsEDIDBlock0",d);d->release();}
+   }
+  }
 #else
   ReimsBringup::CoreInit<BarIO> init(io,kExecute);
   const auto result=init.run();

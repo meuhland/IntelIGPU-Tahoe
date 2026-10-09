@@ -266,6 +266,22 @@ refusals with no register write, and timeouts.
 the monitor: the test pattern at 3840×2160@30 (full-range RGB without an
 AVI infoframe, so the monitor may treat it as limited range).
 
+### EDID over GMBUS (`edid_read.hpp`)
+
+`ReimsEDID::Reader` reads the 128-byte base EDID from the monitor at I2C
+slave 0x50 over the PCH GMBUS controller (registers at 0xc0000, DDC pin 2 =
+HDMI-B per the VBT), ported from i915 `gmbus_index_xfer`/`gmbus_xfer_read`.
+It drives the I2C engine with GMBUS control-register writes but reads only
+the monitor, and parses vendor/product/version, digital flag, extension
+count and the preferred detailed timing. The stage-3 execute build runs it
+after scanout and publishes the result (`ReimsEDIDVendor`,
+`ReimsEDIDPreferred*`, `ReimsEDIDBlock0`, …); the dry run skips it because
+it cannot move the bus. `test_edid_read.cpp` recovers the real captured
+Samsung 4K EDID and covers NAK, bus-in-use and corrupt-EDID cases.
+
+This is diagnostics/identity for now; feeding EDID modes to the framebuffer
+(so macOS names the display and offers its modes) is stage 4 work.
+
 ## Stage 4: handoff to upstream
 
 Once the port lights the output, upstream's flow applies: the native

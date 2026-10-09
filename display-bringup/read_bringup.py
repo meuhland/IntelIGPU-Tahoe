@@ -26,6 +26,15 @@ for key in ('ReimsBringupPath', 'ReimsBringupExecute', 'ReimsBringupStage', 'Phy
 if 'ReimsBringupResult' in p:
     r = p['ReimsBringupResult']
     print(f'ReimsBringupResult: {RESULTS[r] if r < len(RESULTS) else r}')
+EDID_STATUS = ['OK', 'Busy', 'Nak', 'Timeout', 'BadHeader', 'BadChecksum']
+for k in ('ReimsEDIDStatus', 'ReimsEDIDVendor', 'ReimsEDIDProduct',
+          'ReimsEDIDPreferredHActive', 'ReimsEDIDPreferredVActive',
+          'ReimsEDIDPreferredPixelClockKHz', 'ReimsEDIDExtensions'):
+    if k in p:
+        v = p[k]
+        if k == 'ReimsEDIDStatus' and isinstance(v, int):
+            v = EDID_STATUS[v] if v < len(EDID_STATUS) else v
+        print(f'{k}: {v}')
 for step, action, index, _, reg, before, after in struct.iter_unpack('<BBBBIII', p.get('ReimsBringupLogV1', b'')):
     name = STEPS.get(step, step)
     act = ACTIONS[action] if action < len(ACTIONS) else action
