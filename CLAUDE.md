@@ -52,10 +52,12 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   timestamps), so deploy these exact kexts or rebuild and recommit receipts.
   The gate does not compile `deferred_uuid.hpp`; session.py checks the TGL
   UUID via `deferred-runtime.json`.
-- Next: hash-check the `sle` Metal bundle files against upstream's pins
-  (docs/DEPLOY-SAME-HARDWARE.md); boot with ffff isolation and record the
-  guest's real IOService path for GFX0 (`ioreg -p IOService -t -w0`) to pin
-  `REIMS_PCI_PATH`.
+- Metal files (`~/work/tgl-candidates/sle/*.bundle`): none match upstream's
+  SHA-256 pins. MTLDriver is upstream's build (LC_UUID equals the pinned
+  `tglUUID`; patch offsets line up); `libigdmd` and the VA driver
+  (`NativeHEVCVA`) are unverified. Table in docs/PORT-RPLS-UHD770.md.
+- Next: boot with ffff isolation and record the guest's real IOService path
+  for GFX0 (`ioreg -p IOService -t -w0`) to pin `REIMS_PCI_PATH`.
 
 ## Working rules
 

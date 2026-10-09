@@ -95,8 +95,22 @@ from it (Info.plist blob `dc62aaa9`, same NootedGreen commit): candidate
 SHA-256 `3c3def0b…1c0c`, UUID `edbb0eb480dfe8e487eca25a0221af9a`. The
 candidate differs from `sle` only in the 6-byte `registerService` NOP at
 `0x246b5`, the LC_UUID, and the re-signed code signature (`__LINKEDIT` and
-signature sizes). The Metal user-space files are in the same
-`sle` folder and are not yet hash-checked against upstream's pins.
+signature sizes).
+
+The Metal user-space files from the same `sle` folder (checked 2026-10-09)
+also miss upstream's three SHA-256 pins (docs/DEPLOY-SAME-HARDWARE.md):
+
+| File | SHA-256 | LC_UUID | Evidence of same build |
+|---|---|---|---|
+| `AppleIntelTGLGraphicsMTLDriver` | `e21a8d12…7d3f` | `2B849E57…3585` | Strong: equals `tglUUID` pinned in every `metal_entry_loader.m`; the fixed method offsets in `texture_sync_compat.m` (`0x57cb3`, `0x57ccb`) and `resolve_compat.m` (`0x7f496`, `0x4a8cf`) land on the expected methods |
+| MTLDriver `libigdmd.dylib` | `830cb227…94c6` | `1FB19E6C…3C9D` | None: upstream pins no UUID or offset |
+| GLDriver `libigdmd.dylib` | `c6401834…42a6` | `1FB19E6C…3C9D` | Same build as above; differs only in its install name (raw build-system path) |
+| `AppleIntelTGLGraphicsVADriver` (assumed `NativeHEVCVA`) | `d265f203…0129` | `2B208B8F…6926` | None: the name mapping is inferred from `service_bridge.c` |
+
+All are thin x86_64, built against SDK 10.16, and signed under Apple
+identifiers with no team identifier. Use the MTLDriver copy of `libigdmd`.
+The VA driver and `libigdmd` stay unverified until the HEVC and Metal paths
+run on hardware.
 
 ## Prior art
 
