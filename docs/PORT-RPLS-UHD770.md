@@ -69,9 +69,16 @@ host board MSI (IGD subsystem `1462:7e03`).
   | `Limit` | `16` |
 
   `Limit` keeps the match at the device's own name; if `Base` does not
-  resolve, nothing is renamed and the gate fails closed. Verify with
-  `ioreg -p IOService -t -w0 | grep -E 'GFX0@2|S10@2'`: one `GFX0@2` under
-  `PCI0/AppleACPIPCI`, the bridge's `S10@2` unchanged.
+  resolve, nothing is renamed and the gate fails closed. Verified on OpenCore
+  1.0.7: `ioreg -p IOService -t -w0 | grep -E 'GFX0@2|S10@2'` shows one
+  `GFX0@2` (a780 rev 04) under `PCI0/AppleACPIPCI`, and the bridge's `S10@2`
+  unchanged.
+- **SIP.** The port's kexts are ad-hoc signed, so SIP must allow untrusted
+  kexts: `csr-active-config` = `01000000` (only `0x1`), listed under
+  `NVRAM > Delete` so OpenCore replaces the stored value. `csrutil status`
+  then reports a custom configuration with only Kext Signing disabled. The
+  Metal bundle may need further relaxation in phase 6 (unknown; upstream
+  documents none).
 - **ffff isolation.** The OpenCore device-id property targets
   `PciRoot(0x0)/Pci(0x2,0x0)`, which matches this placement.
 - **QEMU IGD support (11.1.1, `hw/vfio/igd.c`).** `a780` is recognised as
@@ -93,9 +100,8 @@ guest kernel (including the TGL kext) from the host.
 
 ## Open items
 
-1. Apply the OpenCore `GFX0` rename and confirm the path; then boot with
-   `ffff` isolation and record the firmware display state (DDI, transcoder,
-   DPLL) read-only.
+1. Boot with `ffff` isolation and record the firmware display state (DDI,
+   transcoder, DPLL) read-only. (`GFX0` rename and SIP: done.)
 2. Port `display_timing.hpp` decode for the RPL-S clock/PLL registers.
 3. Port takeover: remove DPT handling, generalize 1920×1080 constants.
 4. GT1 (32 EU) topology and workarounds in the native TGL runtime.

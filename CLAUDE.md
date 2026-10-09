@@ -63,8 +63,12 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   because the host uses the IGD for LXC QuickSync. Guest path
   `.../PCI0/AppleACPIPCI/S10@2`; rpls default gate path assumes the OpenCore
   rename to `GFX0@2` (patch table in docs/PORT-RPLS-UHD770.md). Gate rebuilt.
-- Next: apply and verify the OpenCore `GFX0` rename; then ffff isolation boot
-  and read-only firmware display state.
+- Guest OpenCore 1.0.7 (`/Volumes/EFI/EFI/OC/config.plist`, `ocvalidate`
+  clean): `GFX0` rename verified, the IGD is at the gate's rpls default path;
+  SIP `csr-active-config` = `01000000` (Kext Signing only). Claude runs on
+  this guest. SIP/security settings are the user's to change.
+- Next: ffff isolation boot (OpenCore device-id `ffff0000` on
+  `PciRoot(0x0)/Pci(0x2,0x0)`) and read-only firmware display state.
 
 ## Working rules
 
