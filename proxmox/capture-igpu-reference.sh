@@ -80,6 +80,17 @@ if command -v intel_reg > /dev/null; then
                 intel_reg read --count=9 $(printf '0x%x' $((phy + 0x880 + ln * 0x100)))
             done
         done
+        # Stage 3 (pipe A / transcoder A / HDMI TC1): whole transcoder A
+        # block (timings, DDI func, DIP infoframes, VRR), pipe A and its
+        # planes, DE watermark/linetime block, CHICKEN_TRANS A-D, pipe A CSC
+        # and GAMMA_MODE. The gamma palette index/data registers around
+        # 0x4a400 auto-increment on access and are not read.
+        intel_reg read --count=512 0x60000
+        intel_reg read --count=512 0x70000
+        intel_reg read --count=192 0x45000
+        intel_reg read --count=8 0x420c0
+        intel_reg read --count=20 0x49010
+        intel_reg read 0x4a480
         for t in 0 1 2 3; do
             intel_reg read --count=24 $(printf '0x%x' $((0x60000 + t * 0x1000)))
             intel_reg read --count=12 $(printf '0x%x' $((0x60400 + t * 0x1000)))
