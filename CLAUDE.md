@@ -183,7 +183,10 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On
   hardware the sink did not answer DDC pin 2 during stage 3 (scanout
-  unaffected); revisit before the handoff serves EDID to macOS.
+  unaffected). Cause (fixed in code, not yet rerun): pin 2 is the VBT value;
+  on ADL-S i915 `map_ddc_pin` maps it through `adls_ddc_pin_map` to
+  `GMBUS_PIN_9_TC1`. `edid_read.hpp` `adlsGmbusPin` now does the same for the
+  EDID read and the SCDC setup (which had the same bug).
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

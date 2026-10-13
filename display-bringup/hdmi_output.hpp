@@ -188,8 +188,10 @@ public:
    if(!execute)record(Step::ScdcSetup,Action::Plan,R3::ddiBufTc1,0,1);
    else{
     ReimsSCDC::Scdc<IO> scdc(io);
-    const auto ss=scdc.setup(2,true,true);           // DDC pin 2 (HDMI-B)
-    const bool live=ss==ReimsSCDC::Status::OK&&scdc.scramblingStatus(2);
+    // VBT DDC pin 2 (HDMI-B) is GMBUS pin 9 on ADL-S.
+    constexpr uint8_t pin=ReimsEDID::adlsGmbusPin(ReimsEDID::kHdmiBVbtDdcPin);
+    const auto ss=scdc.setup(pin,true,true);
+    const bool live=ss==ReimsSCDC::Status::OK&&scdc.scramblingStatus(pin);
     record(Step::ScdcSetup,live?Action::Write:Action::Fail,R3::ddiBufTc1,uint32_t(ss),live);
     if(!live)r=Result::Unexpected;
    }

@@ -129,12 +129,13 @@ class ReimsDisplayBringup:public IOService {
   planeOn=kExecute&&(io.read(ReimsBringup::R4::planeCtl)&(1U<<31));
   if(!planeOn){fbMemory->complete();OSSafeReleaseNULL(fbMemory);}
   setProperty("ReimsBringupPlaneOn",planeOn);
-  // Read the monitor's EDID over GMBUS (DDC pin 2 = HDMI-B per the VBT). This
+  // Read the monitor's EDID over GMBUS (VBT DDC pin 2 = HDMI-B, which is GMBUS
+  // pin 9 on ADL-S; the 2026-10-13 run used pin 2 and timed out). This
   // drives the PCH I2C engine via GMBUS control-register writes, so it only
   // runs in the execute build; the dry run cannot move the bus.
   if(kExecute){
    ReimsEDID::Reader<BarIO> ddc(io);ReimsEDID::Edid e;
-   const auto es=ddc.read(2,e);
+   const auto es=ddc.read(ReimsEDID::adlsGmbusPin(ReimsEDID::kHdmiBVbtDdcPin),e);
    setProperty("ReimsEDIDStatus",uint64_t(es),32);
    if(es==ReimsEDID::Status::OK){
     setProperty("ReimsEDIDVendor",e.vendor);

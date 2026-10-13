@@ -7,7 +7,8 @@
 // registers live in the PCH window at 0xc0000 (PCH_DISPLAY_BASE); the base
 // EDID is 128 bytes at I2C slave 0x50, offset 0. This drives the I2C engine
 // (writes to GMBUS control registers) but reads only the monitor; it never
-// touches the display pipe. The DDC pin comes from the VBT (HDMI-B = pin 2).
+// touches the display pipe. The DDC pin comes from the VBT (HDMI-B = pin 2),
+// which is not the GMBUS pin number on ADL-S: see adlsGmbusPin below.
 //
 // IO provides uint32_t read(uint32_t), void write(uint32_t,uint32_t),
 // void delayUS(uint32_t), uint64_t nowUS().
@@ -22,6 +23,16 @@ constexpr uint32_t hwRdy=1U<<11,satoer=1U<<10,active=1U<<9,inUse=1U<<15;
 constexpr uint32_t rate100=0;
 }
 enum class Status:uint32_t {OK,Busy,Nak,Timeout,BadHeader,BadChecksum};
+
+// VBT DDC pin -> GMBUS0 pin select on ADL-S/RPL-S. i915 map_ddc_pin uses
+// adls_ddc_pin_map for alderlake_s: VBT ICL_DDC_BUS_DDI_A (1) -> GMBUS_PIN_1,
+// ADLS_DDC_BUS_PORT_TC1..TC4 (2..5) -> GMBUS_PIN_9_TC1..GMBUS_PIN_12_TC4 (9..12).
+// Anything else is not a valid pin there (i915 returns 0, no bus).
+constexpr uint8_t adlsGmbusPin(uint8_t vbtPin){
+ return vbtPin==1?uint8_t(1):(vbtPin>=2&&vbtPin<=5)?uint8_t(vbtPin+7):uint8_t(0);
+}
+// This board's VBT: HDMI-B (TC1, the monitor) has DDC pin 2.
+constexpr uint8_t kHdmiBVbtDdcPin=2;
 
 struct Edid {
  uint8_t raw[128]={};

@@ -319,7 +319,15 @@ The monitor showed the test pattern; its OSD reported 4K@30. Readouts:
 
 `ReimsEDIDStatus: Timeout` — the sink did not answer the GMBUS EDID read on
 DDC pin 2. Scanout is unaffected; it matters for the handoff (serving EDID so
-macOS names the display), so revisit before/with stage 4.
+macOS names the display).
+
+Cause: the VBT's DDC pin is not a GMBUS pin number on ADL-S. i915
+`map_ddc_pin` (intel_bios.c) maps it through `adls_ddc_pin_map` for
+`alderlake_s`: VBT `ADLS_DDC_BUS_PORT_TC1` (= 2, HDMI-B here) is
+`GMBUS_PIN_9_TC1`. Writing 2 into `GMBUS0` selected a pin with no sink.
+`ReimsEDID::adlsGmbusPin` now maps 1→1 and 2..5→9..12; the EDID read and the
+SCDC setup (same bug, would have broken 4K60 scrambling) both use it, and
+`test_edid_read` checks that `GMBUS0` gets pin 9. Not yet rerun on hardware.
 
 Each first load of a new kext binary stages to the AuxKC and needs one reboot
 before it loads (as for the phase-4 probe); `/private/tmp` is cleared on

@@ -23,7 +23,7 @@ namespace G=ReimsEDID::R;
 // Emulates the GMBUS read engine: a read cycle in GMBUS1 streams `src` through
 // GMBUS3, setting HW_RDY before each dword. nak=true raises SATOER instead.
 struct Model {
- const uint8_t*src;unsigned pos=0,remaining=0;uint32_t g2=0;uint64_t now=0;bool nak=false,inUse=false;
+ const uint8_t*src;unsigned pos=0,remaining=0;uint32_t g2=0,pinSelect=0;uint64_t now=0;bool nak=false,inUse=false;
  explicit Model(const uint8_t*s):src(s){}
  uint64_t nowUS(){return now;}
  void delayUS(uint32_t us){now+=us;}
@@ -39,10 +39,17 @@ struct Model {
    remaining=(v>>G::byteCountShift)&0x1ff;pos=0;g2|=G::hwRdy|G::active;
   }
   if(a==G::gmbus1&&(v&G::cycleStop))g2&=~G::active;
+  if(a==G::gmbus0&&v)pinSelect=v&0x1f;
  }
 };
 
 int main(){
+ // VBT -> GMBUS pin mapping (i915 adls_ddc_pin_map).
+ static_assert(adlsGmbusPin(1)==1&&adlsGmbusPin(2)==9&&adlsGmbusPin(3)==10,"adls pins");
+ static_assert(adlsGmbusPin(5)==12&&adlsGmbusPin(0)==0&&adlsGmbusPin(6)==0,"adls pin edges");
+ {Model m(kRealEdid);Reader<Model> r(m);Edid e;
+  CHECK(r.read(adlsGmbusPin(kHdmiBVbtDdcPin),e)==Status::OK);
+  CHECK(m.pinSelect==9);}
  // Successful read of the real monitor's EDID over pin 2 (HDMI-B per VBT).
  {Model m(kRealEdid);Reader<Model> r(m);Edid e;
   CHECK(r.read(2,e)==Status::OK);
