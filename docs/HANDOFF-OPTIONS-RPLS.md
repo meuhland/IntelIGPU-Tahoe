@@ -80,6 +80,15 @@ WindowServer surface, whose GGTT mapping Apple's driver already owns.
   makes `kHardwareWritesPorted` review larger. The display would only light
   once the accelerator is up, so a hang leaves a black screen (the serial
   sampler still reports).
+- **Started (code, opt-in, 2026-10-13):** `rpls_light.hpp` runs the stage 2/3
+  sequence over DesktopLink's BAR0 and its own black framebuffer
+  (`fb_memory.hpp`, shared with the bring-up kext). `configure` calls it when
+  the plane is not already lit, then re-reads. Gated behind
+  `REIMS_RPLS_SELF_LIGHT` (off): the committed rpls `intel_framebuffer.o` is
+  byte-identical to before. Still to do before enabling: take the first
+  framebuffer from Apple's allocator instead of a private page set, confirm
+  the ordering against `PrepareRuntime` on hardware, and the
+  `kHardwareWritesPorted` review.
 
 ### D. Apple's TGL framebuffer kext (the NootedGreen route)
 

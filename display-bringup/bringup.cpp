@@ -18,6 +18,7 @@
 #endif
 #if REIMS_BRINGUP_STAGE==3
 #include "hdmi_scanout.hpp"
+#include "fb_memory.hpp"
 #include "edid_read.hpp"
 #elif REIMS_BRINGUP_STAGE==2
 #include "core_init.hpp"
@@ -102,37 +103,6 @@ class ReimsDisplayBringup:public IOService {
    ok&=!strcmp(child->getMetaClass()->getClassName(),"IONDRVFramebuffer");
   it->release();return ok;
  }
-#if REIMS_BRINGUP_STAGE==3
- // 3840x2160 XRGB8888: a 16-pixel white border around eight colour bars,
- // with a grey ramp in the bottom quarter. Display reads are not snooped, so
- // the pattern is flushed from the CPU caches. Pages are below 512 GiB; the
- // guest has no virtual IOMMU, so guest-physical addresses are DMA addresses.
- IOBufferMemoryDescriptor*makeFramebuffer(uint64_t*dma,uint32_t pages){
-  auto*m=IOBufferMemoryDescriptor::inTaskWithPhysicalMask(kernel_task,kIODirectionInOut,
-   uint64_t(pages)*4096,0x0000007ffffff000ULL);
-  if(!m)return nullptr;
-  if(m->prepare()!=kIOReturnSuccess){m->release();return nullptr;}
-  auto*px=static_cast<uint32_t*>(m->getBytesNoCopy());
-  static const uint32_t bars[8]={0xffffff,0xffff00,0x00ffff,0x00ff00,0xff00ff,0xff0000,0x0000ff,0x000000};
-  for(uint32_t y=0;y<2160;++y)for(uint32_t x=0;x<3840;++x){
-   uint32_t c;
-   if(x<16||y<16||x>=3824||y>=2144)c=0xffffff;
-   else if(y>=1620){const uint32_t g=(x-16)*255/3807;c=g<<16|g<<8|g;}
-   else c=bars[(x-16)*8/3808];
-   px[y*3840+x]=c;
-  }
-  const auto base=reinterpret_cast<uintptr_t>(px);
-  for(uint64_t off=0;off<uint64_t(pages)*4096;off+=64)
-   __asm__ volatile("clflush (%0)"::"r"(base+off):"memory");
-  __asm__ volatile("mfence":::"memory");
-  for(uint32_t i=0;i<pages;++i){
-   IOByteCount len=0;
-   dma[i]=m->getPhysicalSegment(uint64_t(i)*4096,&len,kIOMemoryMapperNone);
-   if(!dma[i]||len<4096){m->complete();m->release();return nullptr;}
-  }
-  return m;
- }
-#endif
  bool bringup(){
   auto*entry=IORegistryEntry::fromPath(ReimsTarget::kPCIPath,nullptr);
   auto*pci=OSDynamicCast(IOPCIDevice,entry);
@@ -159,7 +129,7 @@ class ReimsDisplayBringup:public IOService {
   constexpr uint32_t pages=ReimsBringup::R4::pages,ggtt=0x01000000;
   auto*dma=static_cast<uint64_t*>(IOMalloc(pages*sizeof(uint64_t)));
   if(!dma){refuse("out of memory");return false;}
-  fbMemory=makeFramebuffer(dma,pages);
+  fbMemory=ReimsBringup::makeFramebuffer(dma,pages,ReimsBringup::Fill::TestPattern);
   if(!fbMemory){IOFree(dma,pages*sizeof(uint64_t));refuse("framebuffer allocation failed");return false;}
   setProperty("ReimsBringupFramebufferGGTT",uint64_t(ggtt),32);
   setProperty("ReimsBringupFramebufferFirstDMA",dma[0],64);

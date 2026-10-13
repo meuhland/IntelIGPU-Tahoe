@@ -15,6 +15,7 @@
 #include "display_timing.hpp"
 #if defined(REIMS_TARGET_RPLS)
 #include "rpls_takeover.hpp"
+#include "rpls_light.hpp"
 #endif
 #include <kern/clock.h>
 #include "flip_profile.hpp"
@@ -65,6 +66,9 @@ class ReimsIntelADLFramebuffer : public IOFramebuffer {
  bool changedDPT=false;
 #if defined(REIMS_TARGET_RPLS)
  uint32_t modeWidth=0,modeHeight=0; // from the port-lit plane 1A (configure)
+#if defined(REIMS_RPLS_SELF_LIGHT)
+ IOBufferMemoryDescriptor*ownFramebuffer=nullptr; // option C: we lit the pipe
+#endif
  uint8_t edid[128]={};bool edidValid=false; // bring-up's base EDID block
 #else
  static constexpr uint32_t modeWidth=1920,modeHeight=1080;
@@ -331,8 +335,21 @@ public:
   using namespace ReimsTakeover;
   const Plane plane{reg(planeCtl),reg(planeStride),reg(planePos),reg(planeSize),
                     reg(planeSurf),reg(planeOffset),reg(planeSurfLive)};
-  const auto lit=check(plane,gmadr->getLength());
+  auto lit=check(plane,gmadr->getLength());
   setProperty("ReimsTakeoverPlaneStatus",uint64_t(lit.status),32);
+#if defined(REIMS_RPLS_SELF_LIGHT)
+  // Option C: the accelerator blanked the bring-up's pipe, so light it here
+  // (our own black framebuffer) and re-read the plane we just programmed.
+  if(lit.status!=Status::OK){
+   const auto r=ReimsLight::light(registers->getVirtualAddress(),&ownFramebuffer);
+   setProperty("ReimsSelfLightResult",uint64_t(r),32);
+   if(r!=ReimsBringup::Result::OK)return false;
+   const Plane relit{reg(planeCtl),reg(planeStride),reg(planePos),reg(planeSize),
+                     reg(planeSurf),reg(planeOffset),reg(planeSurfLive)};
+   lit=check(relit,gmadr->getLength());
+   setProperty("ReimsTakeoverPlaneStatus",uint64_t(lit.status),32);
+  }
+#endif
   if(lit.status!=Status::OK)return false;
   modeWidth=lit.width;modeHeight=lit.height;
   aperture=IODeviceMemory::withSubRange(gmadr,lit.surface,lit.length);
@@ -456,6 +473,11 @@ public:
  }
  void free() override {
   if(profile){IOFree(profile,ReimsFlipProfile::capacity*sizeof(*profile));profile=nullptr;}
+#if defined(REIMS_TARGET_RPLS) && defined(REIMS_RPLS_SELF_LIGHT)
+  // stop() has disabled the plane; a flip, if any, long since repointed it at
+  // an Apple surface, so these pages are no longer fetched.
+  if(ownFramebuffer){ownFramebuffer->complete();OSSafeReleaseNULL(ownFramebuffer);}
+#endif
   OSSafeReleaseNULL(aperture);OSSafeReleaseNULL(registers);OSSafeReleaseNULL(accelerator);OSSafeReleaseNULL(vblRegistrations);
   if(stateLock)IORecursiveLockFree(stateLock);IOFramebuffer::free();
  }

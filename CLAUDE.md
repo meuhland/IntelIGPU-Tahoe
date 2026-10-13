@@ -205,6 +205,14 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   display itself; the next window's sampler picks whether an interim
   keep-the-order fix is worth it). The sampler logs the bring-up's first
   framebuffer GGTT PTE (`0x808000`) for that.
+- Option C started (code, opt-in): `desktop-link/rpls_light.hpp` lets the
+  native framebuffer light the pipe itself via the stage 2/3 sequence over its
+  BAR0 and a shared black framebuffer (`display-bringup/fb_memory.hpp`).
+  `configure` uses it when the plane is not lit. Gated behind
+  `REIMS_RPLS_SELF_LIGHT` (off); committed rpls object byte-identical. The
+  bring-up kext now shares `fb_memory.hpp` and `hdmi_scanout.hpp` refuses a
+  GGTT range already in use. Host tests: test_fb_memory, updated
+  test_hdmi_scanout. Not run on hardware.
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

@@ -53,6 +53,17 @@ public:
    return fail(Step::Scanout,Result::PreconditionFailed,R4::planeCtl,io.read(R4::planeCtl));
   for(uint32_t i=0;i<fb.pages;++i)
    if(!fb.dma[i]||(fb.dma[i]&0xfff))return fail(Step::Scanout,Result::PreconditionFailed,i,uint32_t(fb.dma[i]));
+  // The GGTT range must be unused: every entry identical (all empty, or all on
+  // one scratch page). Anything else belongs to another GGTT user, such as
+  // Apple's accelerator after PrepareRuntime, and must not be overwritten.
+  {
+   const uint32_t pte0=R4::ggttBase+(fb.ggttOffset>>12)*8;
+   const uint32_t lo=io.read(pte0),hi=io.read(pte0+4);
+   for(uint32_t i=1;i<fb.pages;++i){
+    const uint32_t a=pte0+i*8;
+    if(io.read(a)!=lo||io.read(a+4)!=hi)return fail(Step::Scanout,Result::PreconditionFailed,a,io.read(a));
+   }
+  }
   Result r=HdmiOutput<IO>::runOutput(m);
   if(r!=(execute?Result::OK:Result::Planned))return r;
   // gen9_dbuf_slices_update: the plane's DDB spans both slices.

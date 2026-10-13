@@ -55,6 +55,11 @@ int main(){
  CHECK(refused({0x01000000,R4::pages,nullptr},0));             // no pages
  {std::vector<uint64_t> bad=dma;bad[17]=0x123400800ULL;CHECK(refused({0x01000000,R4::pages,bad.data()},0));} // unaligned page
  CHECK(refused(fb,0x84000000));                                // plane already on
+ {Model m;m.r[0x808000+100*8]=0x45678001;HdmiScanout<Model> s(m,true); // GGTT range in use
+  CHECK(s.runScanout(kUhd30,fb)==Result::PreconditionFailed&&m.writes.empty()&&m.writes64==0);}
+ {Model m;HdmiScanout<Model> s(m,true);                        // all on one scratch page: unused
+  for(uint32_t i=0;i<R4::pages;++i){m.r[0x808000+i*8]=0x00abc001;m.r[0x808000+i*8+4]=0;}
+  CHECK(s.runScanout(kUhd30,fb)==Result::OK);}
  {Model m;HdmiScanout<Model> s(m,true);                        // 3a mode must be 3840x2160
   CHECK(s.runScanout({1920,2008,2052,2200,1080,1084,1089,1125,148500,60,true,true,false},fb)==Result::PreconditionFailed);
   CHECK(m.writes.empty());}

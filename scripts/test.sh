@@ -41,3 +41,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
  display-bringup/test_gt_sampler.cpp -o "$timing_test/test_gt_sampler"
 "$timing_test/test_gt_sampler"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
+ display-bringup/test_fb_memory.cpp -o "$timing_test/test_fb_memory"
+"$timing_test/test_fb_memory"
