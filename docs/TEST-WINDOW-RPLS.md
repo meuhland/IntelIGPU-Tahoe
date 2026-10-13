@@ -46,6 +46,17 @@ python3 display-bringup/read_bringup.py
 sudo ./igpu-start
 ```
 
+**First load of each new kext needs a reboot.** On this guest `kmutil load -p`
+of a never-before-loaded binary stages it to the AuxKC and prints "requires a
+reboot" instead of loading it (same as the phase-4 probe). Reboot, then
+re-`ditto` to `/private/tmp` (cleared on reboot) and load again — the second
+load is live. The dry-run and execute builds share a bundle id but are
+different binaries, so each costs one reboot the first time. The iGPU stays
+passed through across a guest reboot and the snapshot is untouched.
+`igpu-start` loads DesktopLink from `/Library/Extensions`, already in the boot
+AuxKC, so it needs no reboot. Confirmed on hardware 2026-10-13 (stage 3 `OK`,
+test pattern at 4K@30).
+
 At step 4, the first Apple driver run on RPL-S, look for:
 
 - `probe` passes: no "Failed to map Device ID" panic and no `-allow3d` refusal.

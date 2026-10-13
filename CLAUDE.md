@@ -99,12 +99,12 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   the guest: PW1, CDCLK 307.2 MHz via pcode + PLL, DBUF, BW buddy; readbacks
   equal the host reference. PHYs/workarounds were already set by host i915
   (PHY init path not yet exercised on hardware).
-- Stage 3a code done, not run on hardware: `display-bringup/hdmi_output.hpp`
-  lights HDMI TC1 at 3840x2160@30 with no plane (black); every value checked
-  against the third host capture (`igpu-reference-20261009-145010`); kext
-  `REIMS_BRINGUP_STAGE=3`. Deviations (no infoframes, no VRR/IPC) in the
-  phase 5 doc.
-- Stage 3b code done, not run on hardware: `hdmi_scanout.hpp` puts a test
+- Stage 3a (code; run on hardware 2026-10-13, see the stage-3 result below):
+  `display-bringup/hdmi_output.hpp` lights HDMI TC1 at 3840x2160@30 with no
+  plane (black); every value checked against the third host capture
+  (`igpu-reference-20261009-145010`); kext `REIMS_BRINGUP_STAGE=3`. Deviations
+  (no infoframes, no VRR/IPC) in the phase 5 doc.
+- Stage 3b (code; run on hardware 2026-10-13): `hdmi_scanout.hpp` puts a test
   pattern on plane 1A via a GGTT-mapped framebuffer (DBUF S2, full-range
   colour, host plane/WM/DDB values). `REIMS_BRINGUP_STAGE=3` runs 2 + 3a + 3b.
 - Stage 4 handoff audit: docs/PHASE5-HANDOFF-AUDIT.md (kernel K1–K13,
@@ -146,15 +146,23 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   and Filesystem Protections off). Metal bundle installed at
   `/Library/GPUBundles/ReimsTahoeTGLGraphicsMTLDriver.bundle`. `ReimsADLDesktopLink`
   stays unloaded (`igpu-start` loads it). Nothing exercised on the iGPU yet.
-- Next hardware window: docs/TEST-WINDOW-RPLS.md (stage 3 test pattern, then
-  igpu-start up to the prepared state).
-- Next: one iGPU window for all of stage 3 (dry run, then execute with a
-  snapshot + go-ahead); expect the test pattern on the monitor. Stage 3a now
-  sends a full-range AVI infoframe (avi_infoframe.hpp, VIC 95). Code-only
-  remaining display-side: none outstanding (SCDC 4K60 done).
-- EDID over GMBUS done (code): `display-bringup/edid_read.hpp` + test recover
-  the real monitor EDID; stage-3 execute build reads and publishes it (DDC
-  pin 2). Not yet run on hardware.
+- Done (phase 5 stage 3 on hardware, 2026-10-13): the stage-3 execute build
+  ran `OK` on the guest (iGPU attached, from the VM snapshot). Dry run first:
+  `Planned`, 0 blocked writes. Execute: `ReimsBringupResult: OK`,
+  `ReimsBringupComplete: True`, 0 blocked writes, identity verified. Pipe A lit
+  on HDMI TC1 at 3840x2160@30 — CDCLK PLL locked (`0x046070`=`0xc0000010`),
+  DPLL0 enabled (`0x046010`=`0x8c000000`), DDI buffer enabled
+  (`0x064300`=`0x80000080`), plane 1A `PLANE_SURFLIVE`=`0x01000000`, no FIFO
+  underrun (`0x044408`=0), pipe A scanline counter advancing. The monitor
+  shows the test pattern; its OSD reports 4K@30. Readouts in
+  `~/work/igpu-notes/window-step3-{execute,gfx0}-20261013-164958.txt`. Each
+  first load of a new kext binary needs one reboot (AuxKC staging), as for the
+  phase-4 probe; `/private/tmp` is cleared on reboot, so re-`ditto` after.
+- EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
+  Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
+  EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On
+  hardware the sink did not answer DDC pin 2 during stage 3 (scanout
+  unaffected); revisit before the handoff serves EDID to macOS.
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

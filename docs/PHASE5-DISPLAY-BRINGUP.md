@@ -297,6 +297,34 @@ Samsung 4K EDID and covers NAK, bus-in-use and corrupt-EDID cases.
 This is diagnostics/identity for now; feeding EDID modes to the framebuffer
 (so macOS names the display and offers its modes) is stage 4 work.
 
+### Stage 3 run on the guest 2026-10-13 (VM 113, iGPU attached, from a snapshot)
+
+Dry run first (`REIMS_BRINGUP_STAGE=3`, no execute): `Planned`, 0 blocked
+writes. Execute build (`REIMS_BRINGUP_EXECUTE=1`): `ReimsBringupResult: OK`,
+`ReimsBringupComplete: True`, 0 blocked writes, `PhysicalIdentityVerified:
+True`. Pipe A came up on HDMI TC1 at 3840×2160@30:
+
+| Check | Register | Value | Meaning |
+|---|---|---|---|
+| CDCLK PLL | `0x046070` | `0xc0000010` | enabled + locked (307.2 MHz) |
+| DPLL0 | `0x046010` | `0x8c000000` | powered + enabled + locked |
+| DDI buffer | `0x064300` | `0x80000080` | TC1 buffer enabled |
+| Transcoder A | `0x070008` | `0xc0000000` | enabled + active |
+| Pipe A DSL | `0x070000` | advancing | `0x086f` → `0x08bc`, scanning out |
+| Plane 1A surf-live | `0x0701ac` | `0x01000000` | plane fetching the GGTT framebuffer |
+| Pipe A underrun | `0x044408` | `0` | no FIFO underrun |
+
+The monitor showed the test pattern; its OSD reported 4K@30. Readouts:
+`~/work/igpu-notes/window-step3-{execute,gfx0}-20261013-164958.txt`.
+
+`ReimsEDIDStatus: Timeout` — the sink did not answer the GMBUS EDID read on
+DDC pin 2. Scanout is unaffected; it matters for the handoff (serving EDID so
+macOS names the display), so revisit before/with stage 4.
+
+Each first load of a new kext binary stages to the AuxKC and needs one reboot
+before it loads (as for the phase-4 probe); `/private/tmp` is cleared on
+reboot, so re-`ditto` the copy after rebooting.
+
 ## Stage 4: handoff to upstream
 
 Once the port lights the output, upstream's flow applies: the native
@@ -307,6 +335,8 @@ framebuffer decodes the running mode and takes over the plane. That part
 ## Unknowns
 
 - Whether host i915 lights the HDMI output with the dGPU primary (stage 0).
-- GMBUS EDID reads in the guest (stage 3 can start from the reference mode).
+- GMBUS EDID reads in the guest: stage 3 on hardware (2026-10-13) timed out on
+  DDC pin 2; the bring-up starts from the reference mode regardless, but EDID
+  for the handoff still needs solving.
 - How Apple's TGL accelerator reacts to a port-initialised display versus a
   firmware one (phase 6).
