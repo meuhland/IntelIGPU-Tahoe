@@ -2,9 +2,9 @@
   "bundle": "ReimsADLManualActivation.kext",
   "identifier": "lab.reims.ReimsADLManualActivation",
   "version": "0.2.2",
-  "uuid": "6D9A94CC-3CD1-3735-888B-91FA392E244D",
+  "uuid": "2DF3A522-F859-311E-B91C-D01587B4B7D9",
   "hashes": {
-    "Contents/MacOS/ReimsADLManualActivation": "5a5bcebf55f299e89a26ea39bc02891b0f469a23fb19feefd3f7485bb9c9bd30",
+    "Contents/MacOS/ReimsADLManualActivation": "6355f68f4addad7d4762e425c5353b6b40c527f5eecd261ec2f14b3410662cba",
     "Contents/Info.plist": "d505360b38547db620d883e096b266dbb5d2235bd4b9b914ddafcf6be2e14862"
   }
 }

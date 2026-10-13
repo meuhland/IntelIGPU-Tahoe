@@ -2,9 +2,9 @@
   "bundle": "ReimsADLDesktopLink.kext",
   "identifier": "lab.reims.ReimsADLDesktopLink",
   "version": "0.6.23",
-  "uuid": "197FE592-6641-3C05-883D-3C6CAB3EAF19",
+  "uuid": "F7DA4F5E-A5C0-34EA-A840-FE7C7B1BC989",
   "hashes": {
-    "Contents/MacOS/ReimsADLDesktopLink": "6f8dca3b97e7a0519ddd36b0f6dab720fff8221e0cadf6e644aed0ae615203aa",
+    "Contents/MacOS/ReimsADLDesktopLink": "7e7add3671bb58df32debe6bfd14a1ac4b4ecd906e049004589de87ddef695fa",
     "Contents/Info.plist": "fa190b2aefbc9af7217f8a7da6ae222c3ccae3812101dd74ef9af7eeb69dc861"
   }
 }

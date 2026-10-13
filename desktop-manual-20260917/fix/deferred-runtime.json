@@ -1,11 +1,16 @@
 {
   "source_sha256": "890735a93a19d3ddda24ff31bda3075dbd145fb7b26c11769f33c4564a8027ac",
-  "candidate_sha256": "3c3def0b4b9e2797e96d8f6025dce8dd81a7c94c531aa70fecf0afa792b61c0c",
+  "candidate_sha256": "478dda5c74c758c1e84f2b5726e7c793b0327c8184abd491d81c9ad1254baec3",
   "deferred_call_file_offset": "0x246b5",
   "deferred_call": "IOService::registerService(unsigned int)",
-  "functional_text_change_bytes": 6,
-  "candidate_uuid": "edbb0eb480dfe8e487eca25a0221af9a",
+  "functional_text_change_bytes": 10,
+  "candidate_uuid": "89dc2f5292cda68ec64560e2a5fa0dcd",
   "automatic_personalities": 0,
   "installed": false,
-  "hardware_tested": false
+  "hardware_tested": false,
+  "target": "rpls",
+  "sku_check_file_offset": "0x23c35",
+  "sku_check_patch": "IntelAccelerator::probe: unlisted device IDs take the TGL-LP GT2 SKU instead of the panic",
+  "gt1_l3_bank_file_offset": "0x287ea",
+  "gt1_l3_bank_patch": "IntelAccelerator::getGPUInfo: 1x4 GT2 path sets L3BankCount=4 without flag 0x20"
 }
