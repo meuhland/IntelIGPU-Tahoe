@@ -102,10 +102,11 @@ The GT sampler already logs `transconfA` and `surfLiveA` across
 | `surfLiveA` moved | Something reprogrammed plane 1A | B or C; find the writer |
 | Screen stays lit until the hang | Blanking is a side effect of the hang | Fix the hang, re-test A |
 
-A small, read-only addition would make the first row certain: also sample
-the GGTT PTE of the bring-up's first framebuffer page (BAR0 `0x800000` +
-(`0x01000000` >> 12) × 8 = `0x808000`, low and high dwords). If it changes
-during `PrepareRuntime`, the accelerator reused the range.
+The sampler also logs the GGTT PTE of the bring-up's first framebuffer page
+(`fbPteLo`/`fbPteHi`, BAR0 `0x800000` + (`0x01000000` >> 12) × 8 =
+`0x808000`), which makes the first row certain: if it changes during
+`PrepareRuntime`, the accelerator reused the range, and `read_gt_serial.py`
+says so in its summary.
 
 ## Recommendation
 

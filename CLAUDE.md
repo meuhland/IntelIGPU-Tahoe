@@ -203,7 +203,8 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
 - Handoff after the blanking: options A–D in docs/HANDOFF-OPTIONS-RPLS.md
   (recommendation: fix the hang, then the native framebuffer lights the
   display itself; the next window's sampler picks whether an interim
-  keep-the-order fix is worth it).
+  keep-the-order fix is worth it). The sampler logs the bring-up's first
+  framebuffer GGTT PTE (`0x808000`) for that.
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

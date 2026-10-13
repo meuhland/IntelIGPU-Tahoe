@@ -9,7 +9,8 @@
 // which goes to the serial console without IOKit or logd.
 //
 // Reads only. It never requests forcewake, so GT-domain registers read as 0
-// while the GT sleeps; the forcewake acks in the same sample show which.
+// while the GT sleeps; the forcewake acks in the same sample show which. The
+// GGTT entries live in BAR0's upper half and need no forcewake.
 // Offsets: i915 intel_gt_regs.h, intel_engine_regs.h (RENDER 0x2000,
 // BLT 0x22000), gt/uc/intel_guc_reg.h; display ones as in hdmi_scanout.hpp.
 namespace ReimsGTSampler {
@@ -23,6 +24,10 @@ constexpr Reg regs[]={
  {0x022034,"bcsHead"},{0x022030,"bcsTail"},{0x02203c,"bcsCtl"},{0x022074,"bcsActhd"},
  {0x0040a0,"errorGen6"},{0x00cec4,"ringFault"},
  {0x070008,"transconfA"},{0x0701ac,"surfLiveA"},
+ // GGTT PTE of the bring-up's first framebuffer page (GGTT 0x01000000):
+ // ggttBase 0x800000 + (0x01000000 >> 12) * 8, as hdmi_scanout.hpp writes it.
+ // A change during PrepareRuntime means the accelerator reused the range.
+ {0x808000,"fbPteLo"},{0x808004,"fbPteHi"},
 };
 constexpr unsigned count=sizeof(regs)/sizeof(regs[0]);
 constexpr uint32_t maxOffset(){uint32_t m=0;for(const auto&r:regs)if(r.offset>m)m=r.offset;return m;}

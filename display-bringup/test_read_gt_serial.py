@@ -19,7 +19,7 @@ def line(seq, ms, **values):
 
 
 HEADER = "ReimsGT seq ms " + " ".join(R.DEFAULT_NAMES)
-LIT = dict(transconfA=0xC0000000, surfLiveA=0x01000000)
+LIT = dict(transconfA=0xC0000000, surfLiveA=0x01000000, fbPteLo=0x12345001, fbPteHi=0x1)
 AWAKE = dict(fwAckGT=0x2, fwAckRender=0x2)
 RCS_ON = dict(rcsCtl=0x7001)  # valid, 8 pages (32 KiB, the profile's RingSizeKB)
 
@@ -93,6 +93,13 @@ class Decoder(unittest.TestCase):
         lines = [line(0, 0, **LIT), line(4, 1000, **stuck), line(24, 6000, **stuck)]
         out = "\n".join(R.summary(R.parse("\n".join(lines))[1]))
         self.assertIn("1 unread entries that are not being consumed", out)
+
+    def test_framebuffer_pte_reused(self):
+        reused = dict(LIT, fbPteLo=0x0BAD0001, fbPteHi=0)
+        lines = [line(0, 0, **LIT), line(40, 10000, **reused)]
+        out = "\n".join(R.summary(R.parse("\n".join(lines))[1]))
+        self.assertIn("changed from 0x0000000112345001 to 0x000000000bad0001", out)
+        self.assertIn("valid, address bits 0x0bad0000", R.describe("fbPteLo", 0x0BAD0001))
 
     def test_timeline_lists_changes(self):
         samples = R.parse("\n".join([line(0, 0, **LIT), line(1, 250, **LIT, gucStatus=0x200)]))[1]

@@ -21,6 +21,7 @@ DEFAULT_NAMES = [
     "bcsHead", "bcsTail", "bcsCtl", "bcsActhd",
     "errorGen6", "ringFault",
     "transconfA", "surfLiveA",
+    "fbPteLo", "fbPteHi",
 ]
 HEARTBEAT_MS = 5000  # Policy::heartbeatTicks x 250 ms
 TICK_MS = 250
@@ -82,6 +83,10 @@ def mimode(v):
     return ",".join(flags) or "running"
 
 
+def pte(sample):
+    return sample["fbPteHi"] << 32 | sample["fbPteLo"]
+
+
 def csb(v):
     # RING_CONTEXT_STATUS_PTR: read pointer bits 11:8, write pointer bits 3:0,
     # 12 entries on Gen11+ (intel_lrc_reg.h GEN11_CSB_*).
@@ -103,6 +108,8 @@ def describe(name, value):
         return f"0x{value:08x} (read={read} write={write}" + (f", {unread} unread)" if unread is not None else ", reset)")
     if name == "rcsMiMode":
         return f"0x{value:08x} ({mimode(value)})"
+    if name == "fbPteLo":
+        return f"0x{value:08x} ({'valid' if value & 1 else 'NOT valid'}, address bits 0x{value & 0xFFFFF000:08x})"
     if name == "transconfA":
         return f"0x{value:08x} ({'enabled' if value >> 31 & 1 else 'disabled'}, {'active' if value >> 30 & 1 else 'inactive'})"
     return f"0x{value:08x}"
@@ -184,6 +191,9 @@ def summary(samples):
         out.append("  Pipe A was active at the start and is not now: the display was turned off.")
     if s["surfLiveA"] != start["surfLiveA"]:
         out.append(f"  Plane 1A moved from 0x{start['surfLiveA']:08x} to 0x{s['surfLiveA']:08x}.")
+    if pte(s) != pte(start):
+        out.append(f"  GGTT entry of the bring-up's first framebuffer page changed from 0x{pte(start):016x} to "
+                   f"0x{pte(s):016x}: the GGTT range was reused or cleared.")
     return out
 
 

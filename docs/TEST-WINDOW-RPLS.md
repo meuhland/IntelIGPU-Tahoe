@@ -68,6 +68,9 @@ the last lines say where `startGraphicsEngine` stopped:
 - RCS/BCS head ≠ tail with `rcsActhd` frozen, or `rcsCsb`/`rcsExecStatus`
   stuck: the first stamp submissions never completed.
 - `errorGen6`/`ringFault` nonzero: a GT error.
+- `transconfA`, `surfLiveA` and `fbPteLo`/`fbPteHi` across the blanking:
+  pipe turned off, plane moved, or the bring-up's GGTT entry rewritten
+  (docs/HANDOFF-OPTIONS-RPLS.md uses this to pick a handoff option).
 - Heartbeats stopping entirely: the CPU or work loops are blocked, not just
   IOKit (also worth knowing).
 

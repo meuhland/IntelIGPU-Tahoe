@@ -13,7 +13,8 @@ int main(){
   CHECK(!(regs[i].offset&3)&&regs[i].offset<0x1000000);
   for(unsigned j=i+1;j<count;++j)CHECK(regs[i].offset!=regs[j].offset);
  }
- static_assert(maxOffset()==0x130044,"forcewake GT ack is the highest offset");
+ static_assert(maxOffset()==0x808004,"framebuffer PTE high dword is the highest offset");
+ static_assert(regs[count-2].offset==0x800000+(0x01000000>>12)*8,"PTE of GGTT 0x01000000");
 
  // Line format: fixed order, 8 hex digits per register, fits the kext buffer.
  Sample s;for(unsigned i=0;i<count;++i)s.v[i]=0x11111111U*(i%16);
