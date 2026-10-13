@@ -71,7 +71,36 @@ the last lines say where `startGraphicsEngine` stopped:
 - Heartbeats stopping entirely: the CPU or work loops are blocked, not just
   IOKit (also worth knowing).
 
-Save the host log with the window evidence.
+Save the host log with the window evidence, and decode it on any machine
+with Python 3 (timeline of changes plus a final-state summary):
+
+```sh
+python3 display-bringup/read_gt_serial.py /root/vm113-serial-<timestamp>.log
+```
+
+### What NootedGreen saw on RPL-P, and how it would show here
+
+NootedGreen (sgiammori, README at `95f8189`) runs the same TGL driver on an
+RPL-P laptop under Sonoma. Its findings are claims from that README, not
+verified here; this port never fakes completion, so they are symptoms to
+recognise, not fixes to copy.
+
+| NootedGreen finding (RPL-P) | In `read_gt_serial.py` output |
+|---|---|
+| Native forcewake acks do not arrive (it replaces `SafeForceWakeMultithreaded`; the profile here sets `MultiForceWakeSelect` 1) | "forcewake: bit 1 not acknowledged" while the accelerator is starting |
+| GuC firmware init fails on RPL/ADL; it boots with `-disablegfxfirmware` because firmware init starts before its scheduler choice | `gucStatus` changes (boot ROM / microkernel fields) then freezes, or auth `BAD` |
+| `resetGraphicsEngine` returns 1025 (timeout) on every call; resets repeat until a userspace watchdog panic about 120 s later | `rcsReset` toggling `request`/`ready`, RCS idle; the log keeps changing |
+| BCS cannot execute under the TGL driver ("ring not empty" resets) | "BCS has queued work and ACTHD is not moving" |
+| Execlist stalls after resets (`EXEC=0x40018098`, `CSB=0x1001`: status entries never consumed) | `rcsExecStatus`/`rcsCsb` frozen with the CSB write pointer ahead of the read pointer |
+| The logical context's ring page is left empty, so a submitted context idles without going active | RCS "on, idle" with `rcsActhd` unchanged and the start still stuck: the stamp wait, not the ring |
+| A stamp write lands in an unmapped GGTT page (its open question) | Same as above: ring idle, start still stuck |
+| `ERROR_GEN6` raised (it masks it permanently) | "GT error registers nonzero" |
+
+`-disablegfxfirmware` is an Apple option: the `sle` binary contains the
+string next to `GraphicsSchedulerSelect`. If the first attempt points at
+GuC firmware, the cheapest second attempt in the same window is to add it
+to the OpenCore `boot-args`, reboot (the hang needs one anyway) and repeat
+steps 3–4.
 
 At step 4, the first Apple driver run on RPL-S, look for:
 

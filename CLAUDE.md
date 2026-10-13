@@ -195,7 +195,11 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   `MultiForceWakeSelect` 1. `REIMS_GT_SAMPLER=1` adds a read-only register
   sampler to the stage-3 bring-up kext that prints over serial (`kprintf`,
   `com.apple.kpi.libkern`); needs `qm set 113 -serial0 socket` and `serial=3`
-  (docs/VM-PREP-RPLS.md 9b, docs/TEST-WINDOW-RPLS.md).
+  (docs/VM-PREP-RPLS.md 9b, docs/TEST-WINDOW-RPLS.md). Decode the host log
+  with `display-bringup/read_gt_serial.py` (timeline + final-state summary);
+  the runbook maps NootedGreen's RPL-P symptoms onto its output and lists
+  `-disablegfxfirmware` (an Apple option present in the `sle` binary) as the
+  second attempt if the sampler points at GuC firmware.
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.
