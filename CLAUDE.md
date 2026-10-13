@@ -200,6 +200,10 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   the runbook maps NootedGreen's RPL-P symptoms onto its output and lists
   `-disablegfxfirmware` (an Apple option present in the `sle` binary) as the
   second attempt if the sampler points at GuC firmware.
+- Handoff after the blanking: options A–D in docs/HANDOFF-OPTIONS-RPLS.md
+  (recommendation: fix the hang, then the native framebuffer lights the
+  display itself; the next window's sampler picks whether an interim
+  keep-the-order fix is worth it).
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

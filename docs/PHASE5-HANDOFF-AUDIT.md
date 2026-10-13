@@ -124,6 +124,10 @@ our GGTT range must be observed in phase 6; until then the handoff design
 assumes the bring-up runs before `PrepareRuntime` and re-checks the plane in
 `configure`.
 
+The 2026-10-13 window showed `PrepareRuntime` blanking the lit pipe, so this
+assumption did not hold; the options are in
+[HANDOFF-OPTIONS-RPLS.md](HANDOFF-OPTIONS-RPLS.md).
+
 ## Blocked by phase 6
 
 The handoff needs Apple's accelerator running on RPL-S GT1. See
