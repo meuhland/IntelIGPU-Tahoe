@@ -89,6 +89,10 @@ p=target/'Contents/Info.plist';info=plistlib.loads(p.read_bytes())
 # may add a current-session personality. Physical identity remains FFFF at boot.
 info['IOKitPersonalities']={}
 info['CFBundleVersion']=info['CFBundleShortVersionString']='16.0.3'
+# The gate links against this kext (OSBundleLibraries: AppleIntelTGLGraphics
+# 16.0.3). A provider only satisfies a library dependency when it declares a
+# compatible version; the stock Apple binary omits it, so set it here.
+info['OSBundleCompatibleVersion']='16.0.3'
 info['ReimsManualPublicationDeferred']=True
 p.write_bytes(plistlib.dumps(info))
 subprocess.run(['codesign','--force','--sign','-',str(target)],check=True)
