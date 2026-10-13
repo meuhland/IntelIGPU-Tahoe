@@ -1,7 +1,11 @@
 """Prepare only: defer TGL service publication until explicit display commit."""
 from pathlib import Path
-import hashlib, json, plistlib, shutil, struct, subprocess, argparse
+import hashlib, json, os, plistlib, shutil, struct, subprocess, argparse
 base=Path(__file__).resolve().parent
+# Same selector as the kernel builds (scripts/target-flags.sh). adlp output is
+# byte-identical to upstream; rpls adds the GT1 L3 bank patch below.
+target_name=os.environ.get('REIMS_TARGET','adlp')
+assert target_name in ('adlp','rpls'),f'Unknown REIMS_TARGET={target_name}'
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('source',type=Path,help='Locally obtained compatible TGL runtime bundle (not distributed)')
 source=parser.parse_args().source.resolve()
@@ -39,9 +43,41 @@ assert relocs[values['__ZTV16IntelAccelerator']+16+0x5b0]=='__ZN9IOService15regi
 site=0x246b5
 assert b[site-12:site+6]==bytes.fromhex('498b45004531ff4c89ef31f6ff90b0050000')
 assert not any(site<=a<site+6 for a in relocs)
-patched=bytearray(b);patched[site:site+6]=b'\x90'*6
-assert b[:site]==patched[:site] and b[site+6:]==patched[site+6:]
-assert patched[site:site+6]==bytes([0x90])*6
+edits=[(site,b'\x90'*6)]
+# RPL-S SKU check. IntelAccelerator::probe compares vendor|device<<16 with
+# 0x9A408086 and 0x9A488086 (both store GT tier 2 at +0x1120) and calls the
+# "Failed to map Device ID to GPU SKU" panic for anything else; 0xA7808086 is
+# not listed. Make the last compare unconditional (je -> jmp) so an unlisted ID
+# takes the tier-2 store. 0xA7808086 is below 0xDEAFBEEE as a signed int, so
+# the sentinel branch before it is not taken. Physical identity stays FFFF at
+# boot; the gate still only adds a personality for a780 rev 04.
+sku_site=0x23c35
+if target_name=='rpls':
+    assert values['__ZN16IntelAccelerator5probeEP9IOServicePi']==0x238e2
+    assert b[sku_site-28:sku_site+7]==bytes.fromhex('488b75b88b3e'+'81ffeebeafde7f15'+'81ff8680409a742d'+'81ff8680489a'+'7425'+'e8cecb0600')
+    assert not any(sku_site<=a<sku_site+2 for a in relocs)
+    edits.append((sku_site,b'\xeb\x25'))
+# RPL-S GT1 (1 slice, 4 subslices from the fuses). getGPUInfo's TGL-LP GT2 path
+# sets L3BankCount (+0x1164) to 4 for that shape only when bit 0x20 of the
+# flags at +0x1190 is set, else logs "Invalid NumSlice or NumSubSlices" and
+# leaves it unset. That bit is the simulator flag (setInSimulator sets it for
+# the 0xDEAFBEEF/0xFF208086 sentinel IDs) and changes the GuC paths, so do not
+# set it: drop its test instead (je +0x12 -> 2 NOPs). ADL-P's 1x12 takes the
+# branch before this one.
+l3_site=0x287ea
+if target_name=='rpls':
+    assert values['__ZN16IntelAccelerator10getGPUInfoEv']==0x2847e
+    assert b[l3_site-11:l3_site+18]==bytes.fromhex('83fe01751a83e0204885c0'+'7412'+'83fa04750d41c7876411000004000000')
+    assert not any(l3_site<=a<l3_site+2 for a in relocs)
+    edits.append((l3_site,b'\x90'*2))
+patched=bytearray(b)
+for at,new in edits:patched[at:at+len(new)]=new
+# Every byte outside the edits is unchanged.
+restored=bytearray(patched)
+for at,new in edits:
+    assert patched[at:at+len(new)]==new
+    restored[at:at+len(new)]=b[at:at+len(new)]
+assert restored==b
 deferred_uuid=hashlib.sha256(patched).digest()[:16]
 patched[uuid_offset:uuid_offset+16]=deferred_uuid
 (base/'manual-gate/deferred_uuid.hpp').write_text('static const unsigned char deferredUUID[]={'+','.join(hex(x) for x in deferred_uuid)+'};\n')
@@ -57,6 +93,12 @@ info['ReimsManualPublicationDeferred']=True
 p.write_bytes(plistlib.dumps(info))
 subprocess.run(['codesign','--force','--sign','-',str(target)],check=True)
 subprocess.run(['codesign','--verify','--deep','--strict',str(target)],check=True)
-record={'source_sha256':source_sha256,'candidate_sha256':hashlib.sha256((target/'Contents/MacOS/AppleIntelTGLGraphics').read_bytes()).hexdigest(),'deferred_call_file_offset':hex(site),'deferred_call':'IOService::registerService(unsigned int)','functional_text_change_bytes':6,'candidate_uuid':deferred_uuid.hex(),'automatic_personalities':0,'installed':False,'hardware_tested':False}
+record={'source_sha256':source_sha256,'candidate_sha256':hashlib.sha256((target/'Contents/MacOS/AppleIntelTGLGraphics').read_bytes()).hexdigest(),'deferred_call_file_offset':hex(site),'deferred_call':'IOService::registerService(unsigned int)','functional_text_change_bytes':sum(len(new) for _,new in edits),'candidate_uuid':deferred_uuid.hex(),'automatic_personalities':0,'installed':False,'hardware_tested':False}
+if target_name=='rpls':
+    record['target']='rpls'
+    record['sku_check_file_offset']=hex(sku_site)
+    record['sku_check_patch']='IntelAccelerator::probe: unlisted device IDs take the TGL-LP GT2 SKU instead of the panic'
+    record['gt1_l3_bank_file_offset']=hex(l3_site)
+    record['gt1_l3_bank_patch']='IntelAccelerator::getGPUInfo: 1x4 GT2 path sets L3BankCount=4 without flag 0x20'
 (base/'deferred-runtime.json').write_text(json.dumps(record,indent=2)+'\n')
 print(json.dumps(record,indent=2))

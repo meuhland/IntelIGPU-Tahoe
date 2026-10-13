@@ -109,10 +109,20 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   colour, host plane/WM/DDB values). `REIMS_BRINGUP_STAGE=3` runs 2 + 3a + 3b.
 - Stage 4 handoff audit: docs/PHASE5-HANDOFF-AUDIT.md (kernel K1–K13,
   runtime R1–R8). Blocked on phase 6: the handoff needs Apple's accelerator.
-- Phase 6 open question (see port doc, "Apple TGL accelerator on RPL-S"):
-  `IntelAccelerator::probe` maps the PCI device ID to a SKU and panics on
-  unlisted IDs; `a780` is not listed. Ask upstream how ADL-P passes. Do not
-  work on getting the driver past that check.
+- Phase 6 SKU check (port doc, "Apple TGL accelerator on RPL-S"):
+  `IntelAccelerator::probe` (`0x23c1d`) accepts only vendor/device
+  `0x9A408086`/`0x9A488086` (GT2, `+0x1120`=2) and panics otherwise; `a780`
+  is not listed. The user lifted the earlier "do not bypass" rule on
+  2026-10-13: getting the driver past this check is in scope.
+- SKU bypass + GT1 L3 banks (code, not run on hardware): `REIMS_TARGET=rpls
+  prepare-deferred-runtime.py` adds `je`→`jmp` at `0x23c35` (unlisted IDs
+  take the GT2 store) and 2 NOPs at `0x287ea` (getGPUInfo's 1x4 GT2 branch
+  sets L3BankCount=4 without bit `0x20`, the simulator flag). Checked against
+  the `sle` binary: adlp output unchanged (UUID `edbb0eb4…af9a`), rpls
+  candidate UUID `89dc2f52…0dcd`. The tracked
+  `deferred-runtime.json` and the guest candidate are the old adlp-style
+  build: move `~/work/tgl-candidates/ReimsTGLManualRuntime.kext` aside,
+  re-prepare with `REIMS_TARGET=rpls`, recommit the receipt.
 - Next: one iGPU window for all of stage 3 (dry run, then execute with a
   snapshot + go-ahead); expect the test pattern on the monitor. Stage 3a now
   sends a full-range AVI infoframe (avi_infoframe.hpp, VIC 95). Code-only

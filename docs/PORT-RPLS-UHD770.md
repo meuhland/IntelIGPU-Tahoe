@@ -14,6 +14,8 @@ REIMS_TARGET=rpls bash desktop-manual-20260917/fix/manual-gate/build.sh
 REIMS_TARGET=rpls REIMS_TGL_IMAGE=/path/to/AppleIntelTGLGraphics \
   bash desktop-reset-recovery-20260917/source/desktop-link/build.sh
 REIMS_TARGET=rpls bash video-decode-candidate/manual-runtime-discovery-20260917/build.sh
+REIMS_TARGET=rpls python3 desktop-manual-20260917/fix/prepare-deferred-runtime.py \
+  ~/work/tgl-candidates/sle/AppleIntelTGLGraphics.kext
 ```
 
 Without `REIMS_TARGET` the build is the unchanged ADL-P upstream target.
@@ -109,7 +111,9 @@ guest kernel (including the TGL kext) from the host.
 3. Phase 5: the port brings the display up itself (host BIOS primary
    display stays on the dGPU). Plan: [PHASE5-DISPLAY-BRINGUP.md](PHASE5-DISPLAY-BRINGUP.md).
 3. Port takeover: remove DPT handling, generalize 1920×1080 constants.
-4. GT1 (32 EU) topology and workarounds in the native TGL runtime.
+4. GT1 (32 EU) topology and workarounds in the native TGL runtime. L3 bank
+   count and SKU check bypass: code done (rpls runtime patches, below); GT1
+   workarounds still open.
 
 ## RPL-S display timing decode
 
@@ -239,7 +243,7 @@ Observed in `IntelAccelerator` (read-only disassembly, 2026-10-09):
   1 slice / 12 subslices (L3 banks 8) and 1 slice / 4 subslices when bit 5 of
   the accelerator flags at `+0x1190` is set (L3 banks 4); otherwise it logs
   "Invalid NumSlice or NumSubSlices for TGLLP GT2" and leaves the L3 bank
-  count unset. Where that flag is set is not yet known.
+  count unset.
 - **SKU from the PCI device ID.** `probe` reads the vendor/device ID from PCI
   config space (not the FFFF registry property; config space shows the real
   `a780`, as the phase 4 probe confirmed) and maps a short list of Tiger Lake
@@ -247,10 +251,44 @@ Observed in `IntelAccelerator` (read-only disassembly, 2026-10-09):
   GPU SKU", `tgl/IntelAccelerator.cpp:1141`). Neither `a780` nor ADL-P's
   `46a3` is in that list in the `sle` binary.
 
-Open question for the upstream author: how their setup gets
-`IntelAccelerator::probe` to accept ADL-P's device ID with the `ae99582b…`
-binary. Until that is known, phase 6 (and the stage 4 handoff, which needs the
-accelerator) cannot be tested on RPL-S.
+Added 2026-10-13 (disassembly of the `sle` binary, `llvm-objdump`):
+
+- **The SKU list.** At `0x23c1d` `probe` loads vendor | device << 16 and
+  compares it with `0x9A408086` and `0x9A488086` (both store GT tier 2 at
+  `+0x1120`), plus two sentinels: `0xDEAFBEEF` → tier 1 and `0xFF208086` →
+  tier 2. Anything else calls `probe.cold.1` (the panic). NootedGreen gets
+  past it with a byte patch that turns the last compare into an unconditional
+  jump to the tier-2 store, plus a PCI config-read hook that returns the
+  injected `device-id` (`9A49`). This port patches the same compare
+  instead: with `REIMS_TARGET=rpls`, `prepare-deferred-runtime.py` turns the
+  `je` at `0x23c35` (`74 25`) into `jmp` (`eb 25`), so an unlisted ID takes
+  the tier-2 store and `ffff` isolation stays as it is. `0xA7808086` is below
+  `0xDEAFBEEE` as a signed int, so the sentinel `jg` before it is not taken.
+  Tier 2 matters: `getGPUInfo` handles tier 1 differently (always 8 L3
+  banks). The other device-ID compares (`probe+0x107`, `setInSimulator`) only
+  special-case the sentinels. The real ID (`+0x1118`) and revision `04` still
+  reach the TGL-LP workaround table; how it treats them is a phase 6 unknown.
+- **What bit `0x20` of `+0x1190` is.** `IntelAccelerator::setInSimulator`
+  sets it when the device ID is one of the sentinels (`0xDEAFBEEF`,
+  `0xFF208086`): it is the simulator flag. `IGGuC::canLoadFirmware`,
+  `loadBinary`, `dmaHostToGuC`, `checkForProgress`, the GuC work queue and CT
+  buffer init and `IGAccelEventMachine::eventTimeout` test it. Setting it to
+  get 4 L3 banks would put the driver in simulator mode.
+- **GT1 L3 patch.** With `REIMS_TARGET=rpls`, `prepare-deferred-runtime.py`
+  replaces the flag test's `je +0x12` at `0x287ea` (`74 12`) with two NOPs, so
+  Apple's own 1×4 branch stores L3BankCount=4. The 1×12 branch comes first, so
+  ADL-P never reaches it; the adlp candidate stays byte-identical (UUID
+  `edbb0eb4…af9a`). The script asserts the symbol address, 29 bytes of context
+  and the absence of relocations at the site. From the `sle` input the rpls
+  candidate (both rpls patches) gets UUID `89dc2f5292cda68ec64560e2a5fa0dcd`.
+- **Who reads L3BankCount.** In this kext only `getGPUInfo`'s own log calls
+  read `+0x1164` directly, so its consumer copies it out with the rest of the
+  GPU info later (not yet traced). The patch sets it inside `getGPUInfo`,
+  before `initHardwareCaps` runs, which is early enough either way.
+
+The rpls candidate must be re-prepared on the guest: the tracked
+`deferred-runtime.json` and the existing `~/work/tgl-candidates` candidate
+are the 6-byte build. Both rpls patches are unexercised until then.
 
 ## Prior art
 
