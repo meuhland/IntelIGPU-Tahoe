@@ -46,6 +46,26 @@ stage 4 end-to-end depends on phase 6 (TGL accelerator on RPL-S GT1).
 | K12 | `ReimsAttachBacklight` 574 | Backlight kext for the panel | Already skipped on rpls (`kInternalPanel` false) |
 | K13 | Same-register items | Pipe A frame counter `0x70040`, `TRANSCONF` A, `PLANE_*` 1A, `PLANE_SURFLIVE`, GGTT at BAR0 + 8 MiB, PTE mask | Unchanged on display 12 |
 
+**Status 2026-10-13 (code, not run on hardware).** K1–K9 are implemented for
+rpls under `#if defined(REIMS_TARGET_RPLS)`; adlp `intel_framebuffer.o`
+`__text`, `__cstring` and `__const` are identical to before.
+
+- K1–K3: `configure` reads plane 1A (`rpls_takeover.hpp`: enabled, linear,
+  XRGB8888, origin, stride, surface live) and takes width, height and pitch
+  from it; the aperture is the BAR2 (GMADR) sub-range at `PLANE_SURF`. The
+  decoded transcoder must be A and match the plane size (K4; timing source
+  `rpl-s-transcoder-a-combo-pll-decode`).
+- K5: the DPT toggle is compiled out on rpls.
+- K6–K8: plane size, the full-screen flip rectangle (integer float bits) and
+  `ReimsNativeLayout::describe` take the mode instead of 1920x1080.
+- K9: external connection (no `kIOConnectionBuiltIn`), Apple sense
+  `kGenericLCD`; EDID to IOGraphics is still later work.
+- K10: done with R1 (`RCSReady`). K11: still refused until
+  `kHardwareWritesPorted` is enabled for rpls after review.
+- Host test: `test_rpls_takeover.cpp` (in `scripts/test.sh`).
+- The bring-up kext must stay loaded after the handoff: unloading it disables
+  the plane and frees its pages.
+
 ## Proposed rpls design
 
 1. **Bring-up publishes the lit display.** After a successful stage 3 run the
@@ -80,11 +100,11 @@ it stops at `PrepareDisplay`:
 
 | # | Where | Assumption | RPL-S impact / need |
 |---|---|---|---|
-| R1 | `gate.cpp` 110–113, `session.py` 96–97/129/226–229, `ReimsADLDesktopLink.cpp` `link_ready`/`route` | Prepared state requires `RCSADLPWorkaroundLive` (ADL-P Wa_1607297627) and `RCSResetPSMIRegistered` | Never true on rpls (writes refused, and i915 does not apply the WA on ADL-S). Needs a per-target readiness criterion in all three places |
+| R1 | `gate.cpp` 110–113, `session.py` 96–97/129/226–229, `ReimsADLDesktopLink.cpp` `link_ready`/`route` | Prepared state requires `RCSADLPWorkaroundLive` (ADL-P Wa_1607297627) and `RCSResetPSMIRegistered` | Never true on rpls (writes refused, and i915 does not apply the WA on ADL-S). **Done (code, 2026-10-13):** rpls uses `RCSReady` (`ReimsTarget::kRCSReadyProperty`): a read-only RCS inspection whose reads all succeed with the engine out of reset before and after. `PrepareRCSADLP` is read-only on rpls; the gate and `session.py` (keyed on `ReimsTargetDevice`) check `RCSReady`. adlp gate and DesktopLink objects are byte-identical to before |
 | R2 | `session.py` 115/126/220–223 | Exactly one `IONDRVFramebuffer`; "Firmware display disappeared before commit" | Holds while the stub IONDRV stays on `GFX0` (phase 3); wording assumes a lit firmware display |
 | R3 | `desktop_handoff.py` 47/51/64/84 | The Intel framebuffer is WindowServer's display: power state 2 and completing flips; restart only from power 0 with zero flips | On the VM WindowServer also has the QXL display; the Intel output may be a secondary, idle display. Decide whether to drop QXL (`vga: none`) or accept a static secondary |
 | R4 | `intel_framebuffer.cpp` 64/164–166 | Flip counters (`ReimsFlipSubmitted/Completed/Pending`) are only published when diagnostics are forced (`optimizeScanout` default true) | `desktop_handoff.py` reads them; check against upstream before relying on it (may be an upstream defect, not port-specific) |
-| R5 | `profiles.plist` 115/155 | `revision-id` `DAAAAA==` (ADL-P 0x0c) | Not used by the build (`profiles.hpp` splices `REIMS_REVISION_B64`), but stale; annotate or update |
+| R5 | `profiles.plist` 115/155 | `revision-id` `DAAAAA==` (ADL-P 0x0c) | Not used by the build (`profiles.hpp` splices `REIMS_REVISION_B64`), but stale. **Done:** annotated as an ADL-P reference copy |
 | R6 | `backlight/ReimsADLBacklight.cpp` 13 | Hard-coded `0x46a3` | Separate kext, not loaded by `session.py`; must not be installed on RPL-S |
 | R7 | `runtime_video.py` 13–27 | VideoDiscovery `VideoProperties` (Gen10 codec, HEVC levels) | Unknown whether RPL-S GT1 media matches ADL-P; phase 8 |
 | R8 | `graphics_control.cpp` 121 | AGDC name "Reims ADL-P integrated GPU" | Cosmetic |

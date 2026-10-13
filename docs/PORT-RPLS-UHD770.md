@@ -26,13 +26,14 @@ Without `REIMS_TARGET` the build is the unchanged ADL-P upstream target.
 | Component | rpls behaviour |
 | --- | --- |
 | ManualActivation gate | Accepts `a780` rev `04` at `REIMS_PCI_PATH`; profiles match `revision-id` `04` |
-| DesktopLink | Read-only probes (RPS, BCS, RCS capture) allowed; native framebuffer takeover and the ADL-P RCS PSMI workaround refused (`RCS` result 20) |
+| DesktopLink | Read-only probes (RPS, BCS, RCS capture) allowed; native framebuffer takeover refused. No ADL-P RCS PSMI workaround: `PrepareRCSADLP` runs a read-only RCS inspection and publishes `RCSReady` (reads succeed, engine out of reset), which the gate and `session.py` require instead of `RCSADLPWorkaroundLive` |
 | intel_framebuffer | `configure()` refuses until the display path is ported |
 | VideoDiscovery | Accepts `a780` rev `04` |
 | Backlight kext | Not built; DesktopLink does not attach backlight |
 
-`igpu-start` therefore stops at the prepare stage on this target. That is
-intended until phases 4–5 (read-only mode decode, then takeover) are ported.
+`igpu-start` can therefore reach the prepared state on this target but stops
+at the display commit, because the native framebuffer takeover stays refused
+until it is ported and `kHardwareWritesPorted` is reviewed.
 
 ## Proxmox guest setup
 
@@ -282,9 +283,40 @@ Added 2026-10-13 (disassembly of the `sle` binary, `llvm-objdump`):
   and the absence of relocations at the site. From the `sle` input the rpls
   candidate (both rpls patches) gets UUID `89dc2f5292cda68ec64560e2a5fa0dcd`.
 - **Who reads L3BankCount.** In this kext only `getGPUInfo`'s own log calls
-  read `+0x1164` directly, so its consumer copies it out with the rest of the
-  GPU info later (not yet traced). The patch sets it inside `getGPUInfo`,
-  before `initHardwareCaps` runs, which is early enough either way.
+  read `+0x1164` directly. `IGAccelDevice::get_hw_info` copies
+  `+0x1110..+0x1187` (15 qwords: revision, device ID, GT tier, topology,
+  L3BankCount) into the user client's `IntelHwInfoRec`, followed by the
+  timestamp frequency (`+0x1188`), the WA table (`+0xf2e`, 0xbf bytes), the
+  SKU table (`+0xfed`, 0x62 bytes) and `+0x1050` (0xc0 bytes). The consumer
+  is the Metal user-space driver, which reads it long after `getGPUInfo`, so
+  the patch value reaches it. User space also receives the real device ID
+  `0xA7808086` and revision `04`, as upstream's ADL-P passes its real
+  `0x46A38086`.
+
+### Hardware workaround table for `a780` rev `04` (checked 2026-10-13)
+
+- `InitTglLpHwWaTable(WA_TABLE*, SKU_FEATURE_TABLE*, deviceId, revision, x)`
+  is called from `IntelAccelerator::start` and `initHardwareWorkarounds` with
+  `+0x1118` (vendor | device), `+0x1110` and `+0x1114`. `probe` fills
+  `+0x1110` with `extendedConfigRead8(0x08)`, the PCI revision ID.
+- The function ignores the device ID and the last argument. It sets the WA
+  bits from one test, `revision < 4` (mask `0x1fddfaddfec00`, the early TGL
+  steppings) versus `revision >= 4` (mask `0x1f8c5fec00`), plus a constant
+  term from bit 15 of the revision, which is always 0 for an 8-bit ID.
+- RPL-S `a780` rev `04` therefore gets exactly the workaround table ADL-P
+  `46a3` rev `0c` gets on upstream's working machine. The SKU bypass adds no
+  new stepping path; what differs from ADL-P is the GT size (GT1), not the
+  workaround selection.
+- Other users of `+0x1110`/`+0x1118`/`+0x1114` in `IntelAccelerator`: the
+  probe log line, `setInSimulator` (sentinel IDs only) and `get_hw_info`. No
+  other decision reads them.
+- **`-allow3d` boot arg.** For any non-sentinel device ID, `probe`
+  (`0x239f7`) checks `PE_parse_boot_argn("-allow3d")` and otherwise logs
+  "[IGPU] Failing probe (-allow3d is NOT set in boot-arg)!" and fails. This
+  is independent of the SKU check. Upstream does not document it (its EFI
+  config is not published), so its machine must set it. The guest's OpenCore
+  `boot-args` needs `-allow3d` before phase 6; that is a guest config change
+  for the user.
 
 The rpls candidate must be re-prepared on the guest: the tracked
 `deferred-runtime.json` and the existing `~/work/tgl-candidates` candidate

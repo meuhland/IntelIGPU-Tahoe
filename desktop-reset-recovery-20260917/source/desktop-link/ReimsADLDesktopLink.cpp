@@ -120,6 +120,7 @@ class ReimsADLDesktopLink : public IOService {
  // This is deliberately a live cache, not an "ever prepared" latch.  A GT
  // reset restores PSMI and invalidates the state that authorises a desktop
  // route, so every enable request refreshes it from hardware.
+ // On rpls it holds RCSReady instead (see ReimsTarget::kRCSReadyProperty).
  bool rcsWorkaroundLive=false;
  IOReturn prepareResetRegistry(){
   // Caller holds this service lock and has proven the native RCS was never
@@ -448,9 +449,16 @@ class ReimsADLDesktopLink : public IOService {
                         r.ipehrAfter==r.ipehrBefore&&r.acthdAfter==r.acthdBefore;
    if(!preserved||!enabled||!stillIdle){r.result=16;status=kIOReturnIOError;}
   }
+#if defined(REIMS_TARGET_RPLS)
+  // i915 does not apply Wa_1607297627 on ADL-S/RPL-S: ready means every read
+  // succeeded and the engine is not in reset, before and after.
+  rcsWorkaroundLive=status==kIOReturnSuccess&&after&&
+   r.resetControlBefore==0&&resetControlAfter==0;
+#else
   rcsWorkaroundLive=status==kIOReturnSuccess&&after&&
    r.resetControlBefore==0&&resetControlAfter==0&&
    (r.psmiAfter&kADLPRequiredRCSPSMIBits)==kADLPRequiredRCSPSMIBits;
+#endif
   wake.release();
   // Other native users may still own references: ACK need not clear here.
   read32(map,kForceWakeRenderAck,r.renderAckAfterRelease);
@@ -470,8 +478,14 @@ class ReimsADLDesktopLink : public IOService {
   setReg(this,"RCSIPEHRBefore",r.ipehrBefore);setReg(this,"RCSACTHDBefore",r.acthdBefore);
   setReg(this,"RCSResetControlBefore",r.resetControlBefore);
   setReg(this,"RCSResetControlAfter",resetControlAfter);
+#if defined(REIMS_TARGET_RPLS)
+  setProperty("RCSADLPWorkaroundPrepared",false);
+  setProperty("RCSADLPWorkaroundLive",false);
+  setProperty(ReimsTarget::kRCSReadyProperty,rcsWorkaroundLive);
+#else
   setProperty("RCSADLPWorkaroundPrepared",rcsWorkaroundLive);
   setProperty("RCSADLPWorkaroundLive",rcsWorkaroundLive);
+#endif
   return saved?status:kIOReturnNoMemory;
  }
  IOReturn route(bool enable,bool observeUnprepared=false,bool native=false){
@@ -494,6 +508,9 @@ class ReimsADLDesktopLink : public IOService {
    rcsWorkaroundLive=false;
    setProperty("RCSADLPWorkaroundPrepared",false);
    setProperty("RCSADLPWorkaroundLive",false);
+#if defined(REIMS_TARGET_RPLS)
+   setProperty(ReimsTarget::kRCSReadyProperty,false);
+#endif
    setProperty("ObservationLink",false);return kIOReturnSuccess;
   }
   // Never authorise a route using a prior successful observation.  In
@@ -564,6 +581,9 @@ public:
   setProperty("Linked",false);setProperty("ObservationLink",false);
   setProperty("RCSADLPWorkaroundPrepared",false);
   setProperty("RCSADLPWorkaroundLive",false);
+#if defined(REIMS_TARGET_RPLS)
+  setProperty(ReimsTarget::kRCSReadyProperty,false);
+#endif
   setProperty("BCSProbePolicy","read-only-exact-target-no-ring-control-write");
   setProperty("RCSProbePolicy",ReimsTarget::kHardwareWritesPorted?
    "read-only-capture-or-explicit-idle-masked-Wa_1607297627-exact-target":
@@ -591,7 +611,12 @@ public:
   else if(capture==kOSBooleanTrue)r=inspectBCS();
   else if(captureRCS==kOSBooleanTrue)r=inspectRCS(false);
   else if(captureDepth==kOSBooleanTrue)r=inspectRCS(false,true);
+#if defined(REIMS_TARGET_RPLS)
+  // Nothing to apply on RPL-S: preparation is the read-only readiness check.
+  else if(prepareRCS==kOSBooleanTrue)r=inspectRCS(false);
+#else
   else if(prepareRCS==kOSBooleanTrue)r=inspectRCS(true);
+#endif
   else if(observe==kOSBooleanTrue)r=route(true,true);
   else if(link)r=route(link->getValue());
   IOLockUnlock(lock);return r;

@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Reference copy only; no build reads it. The gate embeds profiles.hpp,
+     whose revision-id is spliced from common/reims_target.hpp per target
+     (rpls: BAAAAA== for rev 04). DAAAAA== below is ADL-P rev 0c. -->
 <plist version="1.0">
 <dict>
 	<key>link_profile</key>

@@ -90,6 +90,36 @@ class RuntimeStateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "ready DesktopLink"):
             SESSION.runtime_state(value)
 
+    @staticmethod
+    def rpls(value, **link_values):
+        link = value["IORegistryEntryChildren"][-1]
+        for key in ("RCSADLPWorkaroundLive", "RCSResetPSMIRegistered"):
+            link.pop(key)
+        link.update(ReimsTargetDevice=0xA780, **link_values)
+        return value
+
+    def test_rpls_ready_without_adlp_workaround(self):
+        self.assertEqual(SESSION.runtime_state(self.rpls(prepared(), RCSReady=True)), "prepared")
+        self.assertEqual(SESSION.runtime_state(self.rpls(published(), RCSReady=True)), "published")
+
+    def test_rpls_without_rcs_ready_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, "reset/display preparation"):
+            SESSION.runtime_state(self.rpls(prepared(), RCSReady=False))
+        with self.assertRaisesRegex(RuntimeError, "ready DesktopLink"):
+            SESSION.runtime_state(self.rpls(published()))
+
+    def test_rpls_ignores_adlp_workaround_properties(self):
+        value = self.rpls(prepared(), RCSADLPWorkaroundLive=True, RCSResetPSMIRegistered=True)
+        with self.assertRaisesRegex(RuntimeError, "reset/display preparation"):
+            SESSION.runtime_state(value)
+
+    def test_adlp_ignores_rcs_ready(self):
+        value = prepared()
+        link = value["IORegistryEntryChildren"][-1]
+        link.update(ReimsTargetDevice=0x46A3, RCSReady=True, RCSADLPWorkaroundLive=False)
+        with self.assertRaisesRegex(RuntimeError, "reset/display preparation"):
+            SESSION.runtime_state(value)
+
     def test_loaded_identity_requires_one_matching_uuid(self):
         line = (
             "1 0 0x0 lab.reims.Component (1.0) "

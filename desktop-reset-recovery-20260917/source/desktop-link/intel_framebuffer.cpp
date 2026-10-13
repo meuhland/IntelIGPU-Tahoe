@@ -13,6 +13,9 @@
 #include "native_layout.hpp"
 #include "flip_state.hpp"
 #include "display_timing.hpp"
+#if defined(REIMS_TARGET_RPLS)
+#include "rpls_takeover.hpp"
+#endif
 #include <kern/clock.h>
 #include "flip_profile.hpp"
 #include "../../../common/reims_target.hpp"
@@ -60,6 +63,11 @@ class ReimsIntelADLFramebuffer : public IOFramebuffer {
  uint64_t pinAcquires=0,pinReleases=0,itcmCalls=0;
  uint32_t bootPlaneCtl=0,liveBase=0;
  bool changedDPT=false;
+#if defined(REIMS_TARGET_RPLS)
+ uint32_t modeWidth=0,modeHeight=0; // from the port-lit plane 1A (configure)
+#else
+ static constexpr uint32_t modeWidth=1920,modeHeight=1080;
+#endif
  uint32_t savedDPT=0;
  bool optimizeScanout=true,forceDiagnostics=false,profileEnabled=false;
  struct ProofEntry {OSObject*r=nullptr;IOSurface*s=nullptr;uint64_t age=0;ReimsNativeMapping::PreparedProof proof;};
@@ -115,6 +123,11 @@ class ReimsIntelADLFramebuffer : public IOFramebuffer {
   const auto status=ReimsDisplayTiming::decode(s,m);
   setProperty("ReimsHardwareTimingStatus",uint64_t(status),32);
   if(status!=ReimsDisplayTiming::Status::OK||m.hActive!=pixel.activeWidth||m.vActive!=pixel.activeHeight)return false;
+#if defined(REIMS_TARGET_RPLS)
+  // VBL polls pipe A's frame counter and flips program plane 1A.
+  setProperty("ReimsHardwareTranscoder",uint64_t(m.transcoder),32);
+  if(m.transcoder!=0)return false;
+#endif
   bzero(&timing,sizeof(timing));timing.flags=kIODetailedTimingValid;
   auto&t=timing.detailedInfo.v2;
   t.pixelClock=t.minPixelClock=t.maxPixelClock=m.pixelClockHz;
@@ -130,7 +143,11 @@ class ReimsIntelADLFramebuffer : public IOFramebuffer {
   setProperty("ReimsHardwareRefresh1616",uint64_t(m.refresh1616),32);
   setProperty("ReimsHardwareHTotal",uint64_t(m.hTotal),32);
   setProperty("ReimsHardwareVTotal",uint64_t(m.vTotal),32);
+#if defined(REIMS_TARGET_RPLS)
+  setProperty("ReimsModeTimingSource","rpl-s-transcoder-a-combo-pll-decode");
+#else
   setProperty("ReimsModeTimingSource","adl-p-transcoder-a-combo-pll-link-mn");
+#endif
   return true;
  }
  void snapshotDisplayState(const char*key){
@@ -197,6 +214,8 @@ class ReimsIntelADLFramebuffer : public IOFramebuffer {
  }
  IOReturn armPrimary(OSObject*r,IOSurface*s,const ReimsNativeLayout::Plan*plan,uint32_t va){
   if(flipState.pending)return kIOReturnBusy;
+#if !defined(REIMS_TARGET_RPLS)
+  // No DPT on display 12 (HAS_DPT is display >= 13), so RPL-S skips this.
   if(r&&plan->planeTilingBits){
    // ADL-P display13 routes tiled surfaces through DPT unless disabled.
    // Native TGL maps GGTT pages, not a GGTT-resident display page table.
@@ -215,6 +234,7 @@ class ReimsIntelADLFramebuffer : public IOFramebuffer {
    }
    diag("ReimsDPTControlAfter",uint64_t(reg(0x42084)),32);
   }
+#endif
   observeScanout();
   // pinResource has already succeeded before reaching this function.
   if(!flipState.arm(va,r!=nullptr,wraps))return kIOReturnBusy;
@@ -223,7 +243,7 @@ class ReimsIntelADLFramebuffer : public IOFramebuffer {
   if(r){
    ctl|=0x80000000U|plan->planeTilingBits;
    writeReg(0x70188,plan->planeStride);writeReg(0x7018c,0);
-   writeReg(0x70190,(1079U<<16)|1919U);writeReg(0x701a4,0);
+   writeReg(0x70190,((modeHeight-1)<<16)|(modeWidth-1));writeReg(0x701a4,0);
   }else ctl&=~0x80000000U;
   // Intel MMIO sequence: nonarming fields, CTL, then SURF to arm atomically.
   writeReg(0x70180,ctl);writeReg(0x7019c,va);(void)reg(0x7019c);
@@ -299,6 +319,33 @@ public:
   stateLock=IORecursiveLockAlloc();if(!stateLock)return false;
   auto*p=OSDynamicCast(IOPCIDevice,a->getProvider());
   if(!ReimsTarget::kHardwareWritesPorted||!ReimsTarget::isDevice(p)||boot->getProvider()!=p)return false;
+#if defined(REIMS_TARGET_RPLS)
+  // The bring-up lit pipe A and scans plane 1A from a GGTT range; the stub
+  // IONDRVFramebuffer drives nothing. Take the mode from that plane (the
+  // decoded transcoder must agree, below) and expose the scanned pages through
+  // BAR2, where the CPU sees GGTT-mapped memory.
+  registers=p->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0,kIOMapInhibitCache);
+  auto*gmadr=p->getDeviceMemoryWithRegister(kIOPCIConfigBaseAddress2);
+  if(!registers||registers->getLength()<0x1000000||!gmadr)return false;
+  using namespace ReimsTakeover;
+  const Plane plane{reg(planeCtl),reg(planeStride),reg(planePos),reg(planeSize),
+                    reg(planeSurf),reg(planeOffset),reg(planeSurfLive)};
+  const auto lit=check(plane,gmadr->getLength());
+  setProperty("ReimsTakeoverPlaneStatus",uint64_t(lit.status),32);
+  if(lit.status!=Status::OK)return false;
+  modeWidth=lit.width;modeHeight=lit.height;
+  aperture=IODeviceMemory::withSubRange(gmadr,lit.surface,lit.length);
+  if(!aperture)return false;
+  bzero(&pixel,sizeof(pixel));
+  pixel.bytesPerRow=lit.pitchBytes;pixel.bitsPerPixel=32;pixel.pixelType=kIORGBDirectPixels;
+  pixel.componentCount=3;pixel.bitsPerComponent=8;
+  pixel.componentMasks[0]=0x00ff0000;pixel.componentMasks[1]=0x0000ff00;pixel.componentMasks[2]=0x000000ff;
+  strlcpy(pixel.pixelFormat,IO32BitDirectPixels,sizeof(pixel.pixelFormat));
+  pixel.activeWidth=lit.width;pixel.activeHeight=lit.height;
+  bzero(&modeInfo,sizeof(modeInfo));
+  modeInfo.nominalWidth=lit.width;modeInfo.nominalHeight=lit.height;
+  bzero(&timing,sizeof(timing));
+#else
   IODisplayModeID m=0;IOIndex d=0;
   if(boot->getCurrentDisplayMode(&m,&d)||boot->getPixelInformation(m,d,kIOFBSystemAperture,&pixel)||
      boot->getInformationForDisplayMode(m,&modeInfo)||pixel.activeWidth!=1920||pixel.activeHeight!=1080||pixel.bytesPerRow!=7680||pixel.bitsPerPixel!=32)return false;
@@ -310,6 +357,7 @@ public:
   // Exact observed boot primary: enabled, linear, full 1920x1080, origin zero.
   if(!(reg(0x70180)&0x80000000)||(reg(0x70180)&(7U<<10))||reg(0x70188)!=120||
      reg(0x7018c)||reg(0x70190)!=((1079U<<16)|1919)||reg(0x701a4))return false;
+#endif
   bootPlaneCtl=reg(0x70180);
   snapshotDisplayState("ReimsBootDisplayStateV1");
   // Refuse the handoff before retiring boot FB if this is not a decoded
@@ -420,7 +468,7 @@ public:
   Gate g(stateLock);snapshotDisplayState("ReimsCurrentDisplayStateV1");
   if(!ready||flipState.pending||!frontResource||!frontSurface)return kIOReturnNotReady;
   auto*backing=frontSurface->getMemoryDescriptor();
-  const auto plan=ReimsNativeLayout::describe(surfaceLayout(frontResource,frontSurface));
+  const auto plan=ReimsNativeLayout::describe(surfaceLayout(frontResource,frontSurface),modeWidth,modeHeight);
   if(plan.status!=ReimsNativeLayout::Status::OK)return kIOReturnUnsupported;
   const auto proof=ReimsNativeMapping::inspect(frontResource,backing,registers,flipState.base,plan.requiredBytes);
   if(proof.code!=ReimsNativeMapping::ResultCode::Success)return kIOReturnNotReady;
@@ -468,11 +516,22 @@ public:
  IOReturn getAttributeForConnection(IOIndex c,IOSelect a,uintptr_t*v) override{
   if(c)return kIOReturnBadArgument;
   if(a==kConnectionEnable||a==kConnectionCheckEnable){if(v)*v=ready;return kIOReturnSuccess;}
+#if defined(REIMS_TARGET_RPLS)
+  if(a==kConnectionFlags){if(v)*v=0;return kIOReturnSuccess;} // external HDMI
+#else
   if(a==kConnectionFlags){if(v)*v=kIOConnectionBuiltIn;return kIOReturnSuccess;}
+#endif
   if(a==kConnectionChanged){if(v)*v=0;return kIOReturnSuccess;}
   return IOFramebuffer::getAttributeForConnection(c,a,v);
  }
- IOReturn getAppleSense(IOIndex c,UInt32*s,UInt32*e,UInt32*t,UInt32*d) override{if(c)return kIOReturnBadArgument;if(s)*s=0;if(e)*e=0;if(t)*t=0;if(d)*d=kPanelTFTConnect;return kIOReturnSuccess;}
+ IOReturn getAppleSense(IOIndex c,UInt32*s,UInt32*e,UInt32*t,UInt32*d) override{
+#if defined(REIMS_TARGET_RPLS)
+  // External HDMI monitor; no EDID provider yet, so a generic LCD.
+  if(c)return kIOReturnBadArgument;if(s)*s=0;if(e)*e=0;if(t)*t=0;if(d)*d=kGenericLCD;return kIOReturnSuccess;
+#else
+  if(c)return kIOReturnBadArgument;if(s)*s=0;if(e)*e=0;if(t)*t=0;if(d)*d=kPanelTFTConnect;return kIOReturnSuccess;
+#endif
+ }
  IOReturn registerForInterruptType(IOSelect type,IOFBInterruptProc proc,OSObject*target,void*ref,void**out) override{
   Gate g(stateLock);if(type!=kIOFBVBLInterruptType)return kIOReturnUnsupported;
   if(!out||!proc||!target)return kIOReturnBadArgument;*out=nullptr;
@@ -561,7 +620,7 @@ public:
     if(validations++<32){auto*d=OSData::withBytes(info,sizeof(info));if(d){diag("ReimsNativeSurfaceV1",d);d->release();}
      IOLog("ReimsIntelFB validate kind=%llu dirty=0x%llx size=%llux%llu row=%llu format=0x%llx layout=%u rows=%llu/%llu\n",
       kind,info[2],info[3],info[4],info[5],info[6],layout,rowA,rowB);}
-    const auto plan=ReimsNativeLayout::describe(surfaceLayout(r,s));
+    const auto plan=ReimsNativeLayout::describe(surfaceLayout(r,s),modeWidth,modeHeight);
     recordLayout(plan);
     if(plan.status!=ReimsNativeLayout::Status::OK)return kIOReturnUnsupported;
     diag("ReimsValidationStage",uint64_t(7),32);
@@ -598,7 +657,7 @@ public:
     }
     if(r&&s){
      if(trace)trace->surfaceID=s->getSurfaceID();
-     const auto plan=ReimsNativeLayout::describe(surfaceLayout(r,s));
+     const auto plan=ReimsNativeLayout::describe(surfaceLayout(r,s),modeWidth,modeHeight);
      recordLayout(plan);
      if(plan.status!=ReimsNativeLayout::Status::OK)return kIOReturnUnsupported;
      const auto*record=static_cast<const uint8_t*>(p3);
@@ -618,7 +677,8 @@ public:
      const bool consistent=record[0]==1&&row==plan.pitchBytes&&formatAgrees&&selector==0&&record[0x3a]==0;
      diag("ReimsFlipLayoutConsistent",consistent);
      if(!consistent)return kIOReturnUnsupported;
-     const uint32_t fullRect[4]={0,0,0x44f00000U,0x44870000U}; // 0,0,1920,1080 float bits
+     // 0,0,width,height as float bits (1920x1080: 0x44f00000, 0x44870000).
+     const uint32_t fullRect[4]={0,0,ReimsNativeLayout::floatBits(modeWidth),ReimsNativeLayout::floatBits(modeHeight)};
      if(memcmp(record+0x14,fullRect,sizeof(fullRect))||memcmp(record+0x24,fullRect,sizeof(fullRect)))return kIOReturnUnsupported;
      uint64_t va=0;memcpy(&va,static_cast<const uint8_t*>(p3)+8,8);
      diag("ReimsLayoutBaseSuitable",ReimsNativeLayout::baseSuitable(plan,va));

@@ -89,12 +89,22 @@ def loaded_entry(loaded, identifier, expected_uuid, required=True):
     return True
 
 
+RPLS_DEVICE = 0xA780
+
+
 def link_ready(pci):
     links = objects(pci, "ReimsADLDesktopLink")
+    if len(links) != 1:
+        return False
+    link = links[0]
+    # DesktopLink publishes the device it was built for. RPL-S has no RCS PSMI
+    # workaround (i915 applies Wa_1607297627 only on TGL, RKL and ADL-P); its
+    # readiness is a clean read-only RCS inspection (RCSReady).
+    if link.get("ReimsTargetDevice") == RPLS_DEVICE:
+        return link.get("RCSReady") is True
     return (
-        len(links) == 1
-        and links[0].get("RCSADLPWorkaroundLive") is True
-        and links[0].get("RCSResetPSMIRegistered") is True
+        link.get("RCSADLPWorkaroundLive") is True
+        and link.get("RCSResetPSMIRegistered") is True
     )
 
 

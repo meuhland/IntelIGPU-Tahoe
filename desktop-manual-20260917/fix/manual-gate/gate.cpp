@@ -108,7 +108,7 @@ class ReimsADLManualActivation : public IOService {
         }
         accel->release();
         IOReturn result=linkAction("PrepareRCSADLP");
-        if (result==kIOReturnSuccess && link->getProperty("RCSADLPWorkaroundLive")!=kOSBooleanTrue)
+        if (result==kIOReturnSuccess && link->getProperty(ReimsTarget::kRCSReadyProperty)!=kOSBooleanTrue)
             result=kIOReturnNotReady;
         setProperty("DisplayPreparationReady",result==kIOReturnSuccess);
         return result;
@@ -124,7 +124,7 @@ class ReimsADLManualActivation : public IOService {
         auto *fb=copyChild(pci,"ReimsIntelADLFramebuffer");
         bool ready=fb && link->getProperty("Linked")==kOSBooleanTrue &&
             link->getProperty("NativeFramebuffer")==kOSBooleanTrue &&
-            link->getProperty("RCSADLPWorkaroundLive")==kOSBooleanTrue;
+            link->getProperty(ReimsTarget::kRCSReadyProperty)==kOSBooleanTrue;
         OSSafeReleaseNULL(fb);
         if (!ready) return kIOReturnNotReady;
         displayCommitted=true;

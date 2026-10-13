@@ -123,6 +123,17 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   `deferred-runtime.json` and the guest candidate are the old adlp-style
   build: move `~/work/tgl-candidates/ReimsTGLManualRuntime.kext` aside,
   re-prepare with `REIMS_TARGET=rpls`, recommit the receipt.
+- TGL WA table (static, 2026-10-13): `InitTglLpHwWaTable` keys only on
+  revision < 4 vs >= 4, so `a780` rev `04` gets ADL-P rev `0c`'s table. Phase
+  6 also needs `-allow3d` in the guest's OpenCore `boot-args`: `probe` fails
+  without it for any real device ID (user's config to change).
+- R1 done (code): rpls readiness is DesktopLink `RCSReady` (read-only RCS
+  inspection, engine out of reset); gate and session.py check it.
+- K1–K9 done (code): rpls native framebuffer takes the mode from the
+  bring-up's plane 1A and BAR2; adlp objects unchanged (audit doc). Takeover
+  stays behind `kHardwareWritesPorted`.
+- Next hardware window: docs/TEST-WINDOW-RPLS.md (stage 3 test pattern, then
+  igpu-start up to the prepared state).
 - Next: one iGPU window for all of stage 3 (dry run, then execute with a
   snapshot + go-ahead); expect the test pattern on the monitor. Stage 3a now
   sends a full-range AVI infoframe (avi_infoframe.hpp, VIC 95). Code-only

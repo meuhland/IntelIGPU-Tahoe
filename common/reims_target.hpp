@@ -18,6 +18,11 @@ constexpr bool kInternalPanel=false;
 // Display takeover and the ADL-P RCS PSMI workaround write ADL-P registers.
 // Keep them refused until their RPL-S paths are ported; read-only probes stay.
 constexpr bool kHardwareWritesPorted=false;
+// DesktopLink property that authorises publication and the display route.
+// i915 applies Wa_1607297627 (RCS PSMI) only on TGL, RKL and ADL-P, so RPL-S
+// readiness is a clean read-only RCS inspection: every read succeeds and the
+// engine is not in reset. No register is written for it.
+#define REIMS_RCS_READY_PROPERTY "RCSReady"
 // Proxmox/QEMU q35 guest with the IGD at 00:02.0 on the root bus. QEMU's DSDT
 // names it \_SB.PCI0.S10 (seen on the guest as .../PCI0/AppleACPIPCI/S10@2);
 // an OpenCore ACPI patch renames it GFX0 for session.py. Without the rename
@@ -30,12 +35,15 @@ constexpr uint8_t kRevision=0x0c;
 #define REIMS_REVISION_B64 "DAAAAA=="
 constexpr bool kInternalPanel=true;
 constexpr bool kHardwareWritesPorted=true;
+// Upstream: publication requires the ADL-P RCS PSMI workaround to be live.
+#define REIMS_RCS_READY_PROPERTY "RCSADLPWorkaroundLive"
 #define REIMS_DEFAULT_PCI_PATH "IOService:/AppleACPIPlatformExpert/PC00/AppleACPIPCI/GFX0@2"
 #endif
 #ifndef REIMS_PCI_PATH
 #define REIMS_PCI_PATH REIMS_DEFAULT_PCI_PATH
 #endif
 constexpr const char *kPCIPath=REIMS_PCI_PATH;
+constexpr const char *kRCSReadyProperty=REIMS_RCS_READY_PROPERTY;
 
 // Vendor and device only, for checks that upstream made without a revision.
 inline bool isDevice(IOPCIDevice *pci){
