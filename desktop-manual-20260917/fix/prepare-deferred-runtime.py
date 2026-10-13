@@ -89,10 +89,13 @@ p=target/'Contents/Info.plist';info=plistlib.loads(p.read_bytes())
 # may add a current-session personality. Physical identity remains FFFF at boot.
 info['IOKitPersonalities']={}
 info['CFBundleVersion']=info['CFBundleShortVersionString']='16.0.3'
-# The gate links against this kext (OSBundleLibraries: AppleIntelTGLGraphics
-# 16.0.3). A provider only satisfies a library dependency when it declares a
-# compatible version; the stock Apple binary omits it, so set it here.
-info['OSBundleCompatibleVersion']='16.0.3'
+# The gate and DesktopLink link against this kext (OSBundleLibraries:
+# AppleIntelTGLGraphics). A provider only satisfies a library dependency when
+# it declares a compatible version, and the stock Apple binary omits it. The
+# two dependents disagree on the version they require (gate 16.0.3,
+# DesktopLink 16.0.0), so advertise a range that covers both: current version
+# 16.0.3 (ceiling) and compatible back to 16.0.0 (floor).
+info['OSBundleCompatibleVersion']='16.0.0'
 info['ReimsManualPublicationDeferred']=True
 p.write_bytes(plistlib.dumps(info))
 subprocess.run(['codesign','--force','--sign','-',str(target)],check=True)
