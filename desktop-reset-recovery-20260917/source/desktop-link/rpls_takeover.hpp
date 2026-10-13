@@ -39,4 +39,18 @@ inline Result check(const Plane&p,uint64_t apertureLength){
  if(r.surface+r.length>apertureLength){r.status=Status::Aperture;return r;}
  r.status=Status::OK;return r;
 }
+// The bring-up publishes only the 128-byte base EDID block (ReimsEDIDBlock0).
+// Serve it to IOGraphics as a complete EDID: validate the header and checksum,
+// clear the extension count (byte 126) so no missing CTA block is requested,
+// and recompute the checksum (byte 127). False leaves out untouched.
+inline bool edidBaseOnly(const uint8_t in[128],uint8_t out[128]){
+ static const uint8_t header[8]={0,0xff,0xff,0xff,0xff,0xff,0xff,0};
+ uint8_t sum=0;
+ for(unsigned i=0;i<128;++i){if(i<8&&in[i]!=header[i])return false;sum=uint8_t(sum+in[i]);}
+ if(sum)return false;
+ sum=0;
+ for(unsigned i=0;i<127;++i){out[i]=i==126?0:in[i];sum=uint8_t(sum+out[i]);}
+ out[127]=uint8_t(0x100-sum);
+ return true;
+}
 }

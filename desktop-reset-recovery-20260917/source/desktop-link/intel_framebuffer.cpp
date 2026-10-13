@@ -65,6 +65,7 @@ class ReimsIntelADLFramebuffer : public IOFramebuffer {
  bool changedDPT=false;
 #if defined(REIMS_TARGET_RPLS)
  uint32_t modeWidth=0,modeHeight=0; // from the port-lit plane 1A (configure)
+ uint8_t edid[128]={};bool edidValid=false; // bring-up's base EDID block
 #else
  static constexpr uint32_t modeWidth=1920,modeHeight=1080;
 #endif
@@ -345,6 +346,18 @@ public:
   bzero(&modeInfo,sizeof(modeInfo));
   modeInfo.nominalWidth=lit.width;modeInfo.nominalHeight=lit.height;
   bzero(&timing,sizeof(timing));
+  // The bring-up read the monitor's base EDID over GMBUS and published it.
+  // Read that property only; this framebuffer does no I2C of its own.
+  if(auto*match=IOService::serviceMatching("ReimsDisplayBringup")){
+   if(auto*bringup=IOService::copyMatchingService(match)){
+    auto*block=OSDynamicCast(OSData,bringup->getProperty("ReimsEDIDBlock0"));
+    edidValid=block&&block->getLength()==sizeof(edid)&&
+     edidBaseOnly(static_cast<const uint8_t*>(block->getBytesNoCopy()),edid);
+    bringup->release();
+   }
+   match->release();
+  }
+  setProperty("ReimsEDIDServed",edidValid);
 #else
   IODisplayModeID m=0;IOIndex d=0;
   if(boot->getCurrentDisplayMode(&m,&d)||boot->getPixelInformation(m,d,kIOFBSystemAperture,&pixel)||
@@ -518,12 +531,22 @@ public:
   if(a==kConnectionEnable||a==kConnectionCheckEnable){if(v)*v=ready;return kIOReturnSuccess;}
 #if defined(REIMS_TARGET_RPLS)
   if(a==kConnectionFlags){if(v)*v=0;return kIOReturnSuccess;} // external HDMI
+  if(a==kConnectionSupportsHLDDCSense)return edidValid?kIOReturnSuccess:kIOReturnUnsupported;
 #else
   if(a==kConnectionFlags){if(v)*v=kIOConnectionBuiltIn;return kIOReturnSuccess;}
 #endif
   if(a==kConnectionChanged){if(v)*v=0;return kIOReturnSuccess;}
   return IOFramebuffer::getAttributeForConnection(c,a,v);
  }
+#if defined(REIMS_TARGET_RPLS)
+ bool hasDDCConnect(IOIndex c) override{return !c&&edidValid;}
+ // One 128-byte block (1-based numbering), extension count cleared.
+ IOReturn getDDCBlock(IOIndex c,UInt32 block,IOSelect type,IOOptionBits,UInt8*data,IOByteCount*length) override{
+  if(c||!edidValid)return kIOReturnUnsupported;
+  if(block!=1||type!=kIODDCBlockTypeEDID||!data||!length||*length<sizeof(edid))return kIOReturnBadArgument;
+  memcpy(data,edid,sizeof(edid));*length=sizeof(edid);return kIOReturnSuccess;
+ }
+#endif
  IOReturn getAppleSense(IOIndex c,UInt32*s,UInt32*e,UInt32*t,UInt32*d) override{
 #if defined(REIMS_TARGET_RPLS)
   // External HDMI monitor; no EDID provider yet, so a generic LCD.

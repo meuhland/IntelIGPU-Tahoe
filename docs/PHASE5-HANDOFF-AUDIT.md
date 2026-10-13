@@ -59,7 +59,12 @@ rpls under `#if defined(REIMS_TARGET_RPLS)`; adlp `intel_framebuffer.o`
 - K6–K8: plane size, the full-screen flip rectangle (integer float bits) and
   `ReimsNativeLayout::describe` take the mode instead of 1920x1080.
 - K9: external connection (no `kIOConnectionBuiltIn`), Apple sense
-  `kGenericLCD`; EDID to IOGraphics is still later work.
+  `kGenericLCD`. EDID: the framebuffer reads the bring-up's published
+  `ReimsEDIDBlock0` (no I2C of its own) and serves it through
+  `hasDDCConnect`/`getDDCBlock` with `kConnectionSupportsHLDDCSense`. Only the
+  base block exists, so its extension count is cleared and the checksum
+  recomputed; 4K modes from the CTA block are not offered (one mode anyway).
+  `ReimsEDIDServed` shows whether it was found.
 - K10: done with R1 (`RCSReady`). K11: still refused until
   `kHardwareWritesPorted` is enabled for rpls after review.
 - Host test: `test_rpls_takeover.cpp` (in `scripts/test.sh`).
