@@ -7,25 +7,10 @@ code-checked only; nothing below has run on hardware yet.
 
 ## Before the window (iGPU still on the host)
 
-On the guest, from the repository root, at the commit that contains this file:
-
-1. Re-prepare the TGL candidate for rpls (SKU bypass + GT1 L3 patches); see
-   CLAUDE.md for moving the old candidate aside. Expect candidate UUID
-   `89dc2f5292cda68ec64560e2a5fa0dcd`, then commit `deferred-runtime.json`
-   and `manual-gate/deferred_uuid.hpp`.
-2. Rebuild the rpls gate and DesktopLink (they now check `RCSReady`), and
-   VideoDiscovery, with `REIMS_TARGET=rpls` (commands in
-   [PORT-RPLS-UHD770.md](PORT-RPLS-UHD770.md)); recommit their receipts.
-   `kHardwareWritesPorted` stays false, so DesktopLink refuses the takeover.
-3. Build both bring-up variants, stage 3:
-   `REIMS_DISPLAY_BRINGUP=1 REIMS_TARGET=rpls REIMS_BRINGUP_STAGE=3 bash display-bringup/build.sh`
-   (dry run), and the same with `REIMS_BRINGUP_EXECUTE=1`. Keep both copies.
-4. Install the rebuilt gate, DesktopLink and candidate as in
-   [DEPLOY-SAME-HARDWARE.md](DEPLOY-SAME-HARDWARE.md) sections 4–5; approve
-   any new kexts in System Settings before the window.
-5. User: add `-allow3d` to OpenCore `boot-args`. Without it `probe` fails
-   any real device ID ("Failing probe (-allow3d is NOT set in boot-arg)").
-6. `bash scripts/test.sh`, then take a VM snapshot.
+Build, install and check everything as in [VM-PREP-RPLS.md](VM-PREP-RPLS.md):
+re-prepared TGL candidate, rpls gate/DesktopLink/VideoDiscovery, both stage-3
+bring-up builds, the Metal bundle, `-allow3d` in the boot args, then a VM
+snapshot.
 
 ## In the window
 
@@ -38,6 +23,28 @@ Stop at the first unexpected result, save evidence, and roll back the snapshot.
 | 3 | Load the stage-3 execute build and leave it loaded | `OK`; test pattern at 3840x2160@30 on the HDMI monitor; `PLANE_SURFLIVE` = `0x01000000` | read_bringup output, photo of the monitor |
 | 4 | `sudo ./igpu-start` | Prepares: accelerator starts hidden on `a780`, DesktopLink `RCSReady` = true, state `prepared`; then stops at the commit because the takeover is refused | full console output |
 | 5 | Evidence | see below | |
+
+Commands for steps 2–4 (kmutil wants a root-owned copy):
+
+```sh
+# 2: dry run
+sudo rm -rf /private/tmp/ReimsDisplayBringup.kext
+sudo ditto ~/work/bringup/stage3-dryrun/ReimsDisplayBringup.kext /private/tmp/ReimsDisplayBringup.kext
+sudo chown -R root:wheel /private/tmp/ReimsDisplayBringup.kext
+sudo kmutil load -p /private/tmp/ReimsDisplayBringup.kext
+python3 display-bringup/read_bringup.py
+sudo kmutil unload -b lab.reims.ReimsDisplayBringup
+
+# 3: execute build, left loaded (unloading turns the plane off)
+sudo rm -rf /private/tmp/ReimsDisplayBringup.kext
+sudo ditto ~/work/bringup/stage3-execute/ReimsDisplayBringup.kext /private/tmp/ReimsDisplayBringup.kext
+sudo chown -R root:wheel /private/tmp/ReimsDisplayBringup.kext
+sudo kmutil load -p /private/tmp/ReimsDisplayBringup.kext
+python3 display-bringup/read_bringup.py
+
+# 4
+sudo ./igpu-start
+```
 
 At step 4, the first Apple driver run on RPL-S, look for:
 
