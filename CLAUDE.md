@@ -119,14 +119,15 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   take the GT2 store) and 2 NOPs at `0x287ea` (getGPUInfo's 1x4 GT2 branch
   sets L3BankCount=4 without bit `0x20`, the simulator flag). Checked against
   the `sle` binary: adlp output unchanged (UUID `edbb0eb4…af9a`), rpls
-  candidate UUID `89dc2f52…0dcd`. Re-prepared and committed; the gate links
-  the candidate as a library (`OSBundleLibraries` →
-  `com.apple.driver.AppleIntelTGLGraphics 16.0.3`), so the candidate now
-  carries `OSBundleCompatibleVersion 16.0.3` (stock Apple binary omits it;
-  without it `kmutil` refused the gate, "could not find version compatible
-  with 16.0.3"). That reseals the ad-hoc signature, so `candidate_sha256` is
-  `6973383f…` (the Mach-O and its UUID are unchanged). `deferred-runtime.json`
-  tracks that hash.
+  candidate UUID `89dc2f52…0dcd`. Re-prepared and committed. Gate and
+  DesktopLink both link the candidate as a library (`OSBundleLibraries` →
+  `com.apple.driver.AppleIntelTGLGraphics`) and disagree on the version (gate
+  `16.0.3`, DesktopLink `16.0.0`); the stock Apple binary omits
+  `OSBundleCompatibleVersion`, so `kmutil` refused them. The candidate now
+  carries `CFBundleVersion 16.0.3` + `OSBundleCompatibleVersion 16.0.0` so the
+  range `[16.0.0, 16.0.3]` covers both. The reseal moves `candidate_sha256`
+  to `e2999223…` (Mach-O and UUID unchanged); `deferred-runtime.json` tracks
+  it.
 - TGL WA table (static, 2026-10-13): `InitTglLpHwWaTable` keys only on
   revision < 4 vs >= 4, so `a780` rev `04` gets ADL-P rev `0c`'s table. Phase
   6 also needs `-allow3d` in the guest's OpenCore `boot-args`: `probe` fails
@@ -145,7 +146,9 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   candidate. `boot-args` `keepsyms=1 -allow3d`; csr `03000000` (Kext Signing
   and Filesystem Protections off). Metal bundle installed at
   `/Library/GPUBundles/ReimsTahoeTGLGraphicsMTLDriver.bundle`. `ReimsADLDesktopLink`
-  stays unloaded (`igpu-start` loads it). Nothing exercised on the iGPU yet.
+  stays unloaded (`igpu-start` loads it). (This bullet recorded the load with
+  the iGPU still on the host; the stage-3 and phase-6 bullets below are the
+  later hardware window.)
 - Done (phase 5 stage 3 on hardware, 2026-10-13): the stage-3 execute build
   ran `OK` on the guest (iGPU attached, from the VM snapshot). Dry run first:
   `Planned`, 0 blocked writes. Execute: `ReimsBringupResult: OK`,
@@ -158,6 +161,24 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   `~/work/igpu-notes/window-step3-{execute,gfx0}-20261013-164958.txt`. Each
   first load of a new kext binary needs one reboot (AuxKC staging), as for the
   phase-4 probe; `/private/tmp` is cleared on reboot, so re-`ditto` after.
+- Phase 6 first accelerator start on hardware (2026-10-13, same window):
+  `igpu-start` reached `SelfTest result=0`, `PrepareRuntime result=0` —
+  **Apple's TGL accelerator probed and started on `a780` without a panic**
+  (SKU bypass + GT1 L3 patch + `-allow3d` get it past `probe`/`start` on GT1).
+  But its post-start GPU init then hung IOKit: the port-lit HDMI pipe went
+  black and `session.py` wedged in the `PrepareRuntime` poll loop
+  (`session.py:215`) because `ioreg` blocked uninterruptibly in the kernel
+  (standalone `ioreg -l` and `logd` also stalled) — the accelerator deadlocked
+  the registry during engine/ring/GGTT bring-up. Recovered with a reboot (not
+  a snapshot rollback: disk, the compat-range fix and evidence were all fine).
+  Matches NootedGreen's RPL watchdog/engine-reset reports: the bypass
+  *attaches* the driver, but GPU init does not complete on RPL-S GT1. Also
+  confirms the accelerator reprograms the bring-up's display (handoff can't
+  assume the port-lit pipe survives `PrepareRuntime`). Evidence:
+  `desktop-manual-20260917/fix/session-20261013-170332-396335-start/` +
+  `~/work/igpu-notes/window-step4-*`. Details in docs/PORT-RPLS-UHD770.md
+  ("First accelerator start on `a780`"). Next: narrow where it wedges
+  (GuC/engine vs ring/GGTT), read-only, before another start.
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On

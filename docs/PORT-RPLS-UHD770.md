@@ -323,16 +323,21 @@ Added 2026-10-13 (disassembly of the `sle` binary, `llvm-objdump`):
 The rpls candidate was re-prepared (both patches, UUID
 `89dc2f5292cda68ec64560e2a5fa0dcd`) and loads on Tahoe 25G83 with the gate:
 
-- **Gate linkage.** `ReimsADLManualActivation` declares a library dependency
-  on `com.apple.driver.AppleIntelTGLGraphics 16.0.3` in `OSBundleLibraries`. A
-  kext only satisfies a library dependency when it declares
-  `OSBundleCompatibleVersion`; the stock Apple binary omits it, so `kmutil`
-  refused the gate with "could not find version compatible with '16.0.3'".
-  `prepare-deferred-runtime.py` now sets `OSBundleCompatibleVersion = 16.0.3`
-  on the candidate. This reseals the ad-hoc signature (the `Info.plist` hash
-  lands in the Mach-O signature slot), so the post-`codesign`
-  `candidate_sha256` is `6973383f…`; the patched Mach-O and its `LC_UUID` are
-  unchanged, so the gate's `deferred_uuid.hpp` needs no rebuild.
+- **Gate/DesktopLink linkage.** Both `ReimsADLManualActivation` and
+  `ReimsADLDesktopLink` declare a library dependency on
+  `com.apple.driver.AppleIntelTGLGraphics` in `OSBundleLibraries`, and a kext
+  only satisfies a library dependency when it declares
+  `OSBundleCompatibleVersion` — which the stock Apple binary omits. The two
+  dependents disagree on the version they require: the gate wants `16.0.3`,
+  DesktopLink wants `16.0.0`. `prepare-deferred-runtime.py` therefore sets
+  `CFBundleVersion = 16.0.3` (ceiling) and `OSBundleCompatibleVersion =
+  16.0.0` (floor) so the advertised range `[16.0.0, 16.0.3]` covers both.
+  (First try, compat `16.0.3`, loaded the gate but failed DesktopLink in
+  `igpu-start` preflight with "could not find version compatible with
+  16.0.0".) Each change reseals the ad-hoc signature (the `Info.plist` hash
+  lands in the Mach-O signature slot), moving the post-`codesign`
+  `candidate_sha256` (now `e2999223…`); the patched Mach-O and its `LC_UUID`
+  are unchanged, so the gate's `deferred_uuid.hpp` needs no rebuild.
 - **OpenCore `Kernel > Block`.** The Block on the shared identifier
   `com.apple.driver.AppleIntelTGLGraphics` did not strip the manually loaded
   candidate: after reboot `kmutil showloaded` lists it at UUID `89DC2F52…`
@@ -342,8 +347,51 @@ The rpls candidate was re-prepared (both patches, UUID
 - **Boot state.** `boot-args` `keepsyms=1 -allow3d`; csr `03000000` (Kext
   Signing and Filesystem Protections off, the latter for the
   `/Library/GPUBundles` install). `ReimsADLDesktopLink` stays unloaded;
-  `igpu-start` loads it. Nothing has been exercised on the iGPU yet (still on
-  the host); this only confirms the kexts load and link on Tahoe.
+  `igpu-start` loads it.
+
+### First accelerator start on `a780` (phase 6, hardware, 2026-10-13)
+
+With the iGPU attached (from the window snapshot), stage 3 lit, and the
+candidate/gate loaded, `sudo ./igpu-start` ran. `session.py` reached:
+
+```
+Detected runtime state: cold
+SelfTest result=0x00000000
+PrepareRuntime result=0x00000000
+```
+
+**`PrepareRuntime` returned 0 — Apple's TGL accelerator probed and started on
+`a780` without a panic.** The SKU bypass (`je`→`jmp` at `0x23c35`), the GT1 L3
+patch and `-allow3d` together get the driver past `IntelAccelerator::probe`
+and `start` on GT1; `probe`'s "Failed to map Device ID" panic and the
+`-allow3d` refusal are both avoided. This is the phase-6 gate question
+answered: the driver *attaches*.
+
+**But the accelerator's post-start init then hung the GPU/IOKit.** The HDMI
+output (the port-lit 4K30 pipe) went black, and `session.py` wedged in the
+`PrepareRuntime` poll loop (`session.py:215`, waiting for hidden-ready). That
+loop calls `ioreg` each iteration, and `ioreg` blocked **uninterruptibly** in
+the kernel — a standalone `ioreg -l` never returned either, and `logd` stopped
+answering. So the accelerator took or held an IOKit lock (or faulted) during
+its hardware bring-up and deadlocked the registry; `session.py` never reached
+its 45 s deadline because control never returned from `ioreg`. The VM required
+a reboot (not a snapshot rollback — the disk, the commit fix and the evidence
+were all fine).
+
+This matches NootedGreen's RPL-P reports (engine resets, userspace watchdog
+timeouts): the SKU bypass is sufficient to *attach* the driver, but the TGL
+accelerator does not complete GPU init cleanly on RPL-S GT1 — the failure is
+in the post-attach engine/ring/GGTT bring-up, not the device-ID check. It also
+confirms the handoff audit's open interaction: the accelerator reprograms the
+display the bring-up lit (the screen blanked), so a future handoff cannot
+assume the port-lit pipe survives `PrepareRuntime`.
+
+Evidence (survives reboot): `session-20261013-170332-396335-start/`
+(`startup.log`, `before.plist`) and
+`~/work/igpu-notes/window-step{3,4}-*-20261013-*.txt`. Next: narrow down where
+the accelerator wedges (GuC/engine init vs. ring/GGTT), read-only, before any
+further start attempt; the handoff (phase 7) stays blocked until the
+accelerator stays up.
 
 ## Prior art
 
