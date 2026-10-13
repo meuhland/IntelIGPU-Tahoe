@@ -1,6 +1,6 @@
 {
   "source_sha256": "890735a93a19d3ddda24ff31bda3075dbd145fb7b26c11769f33c4564a8027ac",
-  "candidate_sha256": "6973383fd851a47cfbac805498bad70b032c90d07dae5106eb06a366f98fd1f2",
+  "candidate_sha256": "e299922301b3adb57660a220a922fd5af833a05a6c566a0e2e8edf1baa830007",
   "deferred_call_file_offset": "0x246b5",
   "deferred_call": "IOService::registerService(unsigned int)",
   "functional_text_change_bytes": 10,
