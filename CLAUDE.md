@@ -119,10 +119,14 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   take the GT2 store) and 2 NOPs at `0x287ea` (getGPUInfo's 1x4 GT2 branch
   sets L3BankCount=4 without bit `0x20`, the simulator flag). Checked against
   the `sle` binary: adlp output unchanged (UUID `edbb0eb4…af9a`), rpls
-  candidate UUID `89dc2f52…0dcd`. The tracked
-  `deferred-runtime.json` and the guest candidate are the old adlp-style
-  build: move `~/work/tgl-candidates/ReimsTGLManualRuntime.kext` aside,
-  re-prepare with `REIMS_TARGET=rpls`, recommit the receipt.
+  candidate UUID `89dc2f52…0dcd`. Re-prepared and committed; the gate links
+  the candidate as a library (`OSBundleLibraries` →
+  `com.apple.driver.AppleIntelTGLGraphics 16.0.3`), so the candidate now
+  carries `OSBundleCompatibleVersion 16.0.3` (stock Apple binary omits it;
+  without it `kmutil` refused the gate, "could not find version compatible
+  with 16.0.3"). That reseals the ad-hoc signature, so `candidate_sha256` is
+  `6973383f…` (the Mach-O and its UUID are unchanged). `deferred-runtime.json`
+  tracks that hash.
 - TGL WA table (static, 2026-10-13): `InitTglLpHwWaTable` keys only on
   revision < 4 vs >= 4, so `a780` rev `04` gets ADL-P rev `0c`'s table. Phase
   6 also needs `-allow3d` in the guest's OpenCore `boot-args`: `probe` fails
@@ -132,6 +136,16 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
 - K1–K9 done (code): rpls native framebuffer takes the mode from the
   bring-up's plane 1A and BAR2; adlp objects unchanged (audit doc). Takeover
   stays behind `kHardwareWritesPorted`.
+- Loaded on the guest (2026-10-13, iGPU still on the host): the deferred TGL
+  candidate and the gate load on Tahoe 25G83. `kmutil showloaded`:
+  `com.apple.driver.AppleIntelTGLGraphics (16.0.3)` UUID `89DC2F52…` and
+  `lab.reims.ReimsADLManualActivation (0.2.2)` UUID `2DF3A522…`, the gate's
+  dependency list pointing at the candidate (library linkage resolved). The
+  OpenCore `Kernel > Block` on the shared identifier did **not** strip the
+  candidate. `boot-args` `keepsyms=1 -allow3d`; csr `03000000` (Kext Signing
+  and Filesystem Protections off). Metal bundle installed at
+  `/Library/GPUBundles/ReimsTahoeTGLGraphicsMTLDriver.bundle`. `ReimsADLDesktopLink`
+  stays unloaded (`igpu-start` loads it). Nothing exercised on the iGPU yet.
 - Next hardware window: docs/TEST-WINDOW-RPLS.md (stage 3 test pattern, then
   igpu-start up to the prepared state).
 - Next: one iGPU window for all of stage 3 (dry run, then execute with a

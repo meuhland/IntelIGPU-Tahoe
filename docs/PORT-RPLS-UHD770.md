@@ -318,9 +318,32 @@ Added 2026-10-13 (disassembly of the `sle` binary, `llvm-objdump`):
   `boot-args` needs `-allow3d` before phase 6; that is a guest config change
   for the user.
 
-The rpls candidate must be re-prepared on the guest: the tracked
-`deferred-runtime.json` and the existing `~/work/tgl-candidates` candidate
-are the 6-byte build. Both rpls patches are unexercised until then.
+### Loading the candidate on the guest (2026-10-13)
+
+The rpls candidate was re-prepared (both patches, UUID
+`89dc2f5292cda68ec64560e2a5fa0dcd`) and loads on Tahoe 25G83 with the gate:
+
+- **Gate linkage.** `ReimsADLManualActivation` declares a library dependency
+  on `com.apple.driver.AppleIntelTGLGraphics 16.0.3` in `OSBundleLibraries`. A
+  kext only satisfies a library dependency when it declares
+  `OSBundleCompatibleVersion`; the stock Apple binary omits it, so `kmutil`
+  refused the gate with "could not find version compatible with '16.0.3'".
+  `prepare-deferred-runtime.py` now sets `OSBundleCompatibleVersion = 16.0.3`
+  on the candidate. This reseals the ad-hoc signature (the `Info.plist` hash
+  lands in the Mach-O signature slot), so the post-`codesign`
+  `candidate_sha256` is `6973383f…`; the patched Mach-O and its `LC_UUID` are
+  unchanged, so the gate's `deferred_uuid.hpp` needs no rebuild.
+- **OpenCore `Kernel > Block`.** The Block on the shared identifier
+  `com.apple.driver.AppleIntelTGLGraphics` did not strip the manually loaded
+  candidate: after reboot `kmutil showloaded` lists it at UUID `89DC2F52…`
+  (version 16.0.3) and the gate (`2DF3A522…`) with its dependency list
+  pointing at it. The Block still keeps Apple's own driver from auto-matching
+  the FFFF device at boot.
+- **Boot state.** `boot-args` `keepsyms=1 -allow3d`; csr `03000000` (Kext
+  Signing and Filesystem Protections off, the latter for the
+  `/Library/GPUBundles` install). `ReimsADLDesktopLink` stays unloaded;
+  `igpu-start` loads it. Nothing has been exercised on the iGPU yet (still on
+  the host); this only confirms the kexts load and link on Tahoe.
 
 ## Prior art
 
