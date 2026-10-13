@@ -51,12 +51,16 @@ each one out before the next:
 ```sh
 REIMS_DISPLAY_BRINGUP=1 REIMS_TARGET=rpls REIMS_BRINGUP_STAGE=3 bash display-bringup/build.sh
 ditto display-bringup/build/ReimsDisplayBringup.kext ~/work/bringup/stage3-dryrun/ReimsDisplayBringup.kext
-REIMS_DISPLAY_BRINGUP=1 REIMS_TARGET=rpls REIMS_BRINGUP_STAGE=3 REIMS_BRINGUP_EXECUTE=1 bash display-bringup/build.sh
+REIMS_DISPLAY_BRINGUP=1 REIMS_TARGET=rpls REIMS_BRINGUP_STAGE=3 REIMS_BRINGUP_EXECUTE=1 REIMS_GT_SAMPLER=1 bash display-bringup/build.sh
 ditto display-bringup/build/ReimsDisplayBringup.kext ~/work/bringup/stage3-execute/ReimsDisplayBringup.kext
 ```
 
 Each build prints `built ReimsDisplayBringup.kext (stage 3 dry-run)` or
-`(stage 3 EXECUTE)`; check you copied the right one.
+`(stage 3 EXECUTE + GT sampler)`; check you copied the right one. The
+execute build carries the read-only GT sampler (`gt_sampler.hpp`): while
+loaded it prints GT registers to the serial console every 250 ms when they
+change, plus a 5 s heartbeat. It is a new binary, so its first load costs
+one reboot.
 
 ## 5. Run the host tests
 
@@ -120,6 +124,24 @@ boot-args`, keeping the existing arguments. Make sure `boot-args` is listed
 under `NVRAM > Delete` for that GUID, or OpenCore keeps the old value. Back up
 the config and run `ocvalidate` before rebooting.
 
+## 9b. Serial console for the GT sampler
+
+The last window's hang blocked `ioreg` and `logd`, so the sampler reports
+over serial instead. On the Proxmox host, with VM 113 stopped:
+
+```sh
+qm set 113 -serial0 socket
+```
+
+In the guest's OpenCore `boot-args`, add `serial=3` next to `-allow3d`
+(kernel console and `kprintf` to COM1). During the window, capture it on the
+host from a second shell, before starting the VM (`qm terminal 113` also
+works interactively; exit with Ctrl-O):
+
+```sh
+socat -u UNIX-CONNECT:/var/run/qemu-server/113.serial0 STDOUT | tee /root/vm113-serial-$(date +%Y%m%d-%H%M%S).log
+```
+
 ## 10. Reboot and check (iGPU still on the host)
 
 Approve any new system extensions in System Settings > Privacy & Security
@@ -131,7 +153,7 @@ sw_vers -buildVersion
 kmutil showloaded | egrep 'AppleIntelTGLGraphics|ReimsADLManualActivation|ReimsADLDesktopLink'
 ```
 
-Expect `-allow3d` in the boot args, build `25G83`, and the loaded
+Expect `-allow3d` and `serial=3` in the boot args, build `25G83`, and the loaded
 `AppleIntelTGLGraphics` UUID to be the new candidate, `89dc2f52…0dcd`. The
 old 6-byte candidate (`edbb0eb4…af9a`) means step 7 did not take: redo it.
 

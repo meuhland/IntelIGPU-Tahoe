@@ -57,6 +57,22 @@ passed through across a guest reboot and the snapshot is untouched.
 AuxKC, so it needs no reboot. Confirmed on hardware 2026-10-13 (stage 3 `OK`,
 test pattern at 4K@30).
 
+Keep the host serial capture running (VM-PREP-RPLS.md step 9b). After step
+3 the console shows `ReimsGT seq ms <names…>` once, then a line whenever a
+sampled register changes and a heartbeat every 5 s. If step 4 wedges again,
+the last lines say where `startGraphicsEngine` stopped:
+
+- `fwAckGT`/`fwAckRender` without the requested bits: forcewake never acked.
+- `gucStatus` changing then stuck (and `gucDmaCtrl`): firmware load or
+  scheduler init (the profile asks for the host scheduler, type 5).
+- RCS/BCS head ≠ tail with `rcsActhd` frozen, or `rcsCsb`/`rcsExecStatus`
+  stuck: the first stamp submissions never completed.
+- `errorGen6`/`ringFault` nonzero: a GT error.
+- Heartbeats stopping entirely: the CPU or work loops are blocked, not just
+  IOKit (also worth knowing).
+
+Save the host log with the window evidence.
+
 At step 4, the first Apple driver run on RPL-S, look for:
 
 - `probe` passes: no "Failed to map Device ID" panic and no `-allow3d` refusal.

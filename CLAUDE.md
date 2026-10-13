@@ -187,6 +187,15 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   on ADL-S i915 `map_ddc_pin` maps it through `adls_ddc_pin_map` to
   `GMBUS_PIN_9_TC1`. `edid_read.hpp` `adlsGmbusPin` now does the same for the
   EDID read and the SCDC setup (which had the same bug).
+- Phase 6 hang diagnostics (code, not run): static read of the `sle` binary
+  shows `IntelAccelerator::start` holding an IOLock + `lock_busy` across
+  `startGraphicsEngine` (forcewake, `IGScheduler::initFirmware`, interrupt
+  enable, contexts, three stamp submissions + `finishAllStamps`), consistent
+  with the window's IOKit wedge. The profile already requests scheduler 5 and
+  `MultiForceWakeSelect` 1. `REIMS_GT_SAMPLER=1` adds a read-only register
+  sampler to the stage-3 bring-up kext that prints over serial (`kprintf`,
+  `com.apple.kpi.libkern`); needs `qm set 113 -serial0 socket` and `serial=3`
+  (docs/VM-PREP-RPLS.md 9b, docs/TEST-WINDOW-RPLS.md).
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

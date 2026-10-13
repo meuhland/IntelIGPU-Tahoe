@@ -37,3 +37,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
  display-bringup/test_hdmi_scdc.cpp -o "$timing_test/test_hdmi_scdc"
 "$timing_test/test_hdmi_scdc"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
+ display-bringup/test_gt_sampler.cpp -o "$timing_test/test_gt_sampler"
+"$timing_test/test_gt_sampler"

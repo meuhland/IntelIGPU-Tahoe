@@ -5,6 +5,8 @@
 #   REIMS_DISPLAY_BRINGUP=1 REIMS_TARGET=rpls bash display-bringup/build.sh
 # Load (user, fresh snapshot): stage a root-owned copy, then
 #   sudo kmutil load -p /private/tmp/ReimsDisplayBringup.kext
+# REIMS_GT_SAMPLER=1 adds a read-only GT register watch printed with kprintf
+# (needs serial=3 in boot-args and a VM serial port; docs/TEST-WINDOW-RPLS.md).
 # Read with display-bringup/read_bringup.py; unload with
 #   sudo kmutil unload -b lab.reims.ReimsDisplayBringup
 set -euo pipefail
@@ -19,6 +21,8 @@ case "$stage" in 2|3) ;; *) echo "REIMS_BRINGUP_STAGE must be 2 or 3" >&2; exit 
 flags=(-DREIMS_DISPLAY_BRINGUP=1 -DREIMS_BRINGUP_STAGE=$stage)
 mode="stage $stage dry-run"
 if [ "${REIMS_BRINGUP_EXECUTE:-}" = 1 ]; then flags+=(-DREIMS_BRINGUP_EXECUTE=1); mode="stage $stage EXECUTE"; fi
+# Read-only GT register watch on the serial console (gt_sampler.hpp).
+if [ "${REIMS_GT_SAMPLER:-}" = 1 ]; then flags+=(-DREIMS_GT_SAMPLER=1); mode="$mode + GT sampler"; fi
 sdk=$(xcrun --sdk macosx --show-sdk-path)
 headers="$sdk/System/Library/Frameworks/Kernel.framework/Headers"
 out=build/ReimsDisplayBringup.kext/Contents

@@ -8,6 +8,11 @@
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSIterator.h>
 #include "../common/reims_target.hpp"
+#if defined(REIMS_GT_SAMPLER)
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/IOTimerEventSource.h>
+#include "gt_sampler.hpp"
+#endif
 #if !defined(REIMS_BRINGUP_STAGE)
 #define REIMS_BRINGUP_STAGE 2
 #endif
@@ -54,6 +59,41 @@ class ReimsDisplayBringup:public IOService {
  OSDeclareDefaultStructors(ReimsDisplayBringup)
  IOMemoryMap*bar=nullptr;IOBufferMemoryDescriptor*fbMemory=nullptr;bool planeOn=false;
  void refuse(const char*why){setProperty("ReimsBringupError",why);}
+#if defined(REIMS_GT_SAMPLER)
+ // Read-only GT watch (gt_sampler.hpp): every 250 ms while loaded, print the
+ // sampled registers with kprintf (serial console) when they change, plus a
+ // heartbeat. Its own work loop, so a wedged accelerator gate or IOKit lock
+ // does not stop it; it reads through the BAR0 mapping and never writes.
+ IOWorkLoop*samplerLoop=nullptr;IOTimerEventSource*samplerTimer=nullptr;
+ ReimsGTSampler::State samplerState;uint32_t samplerSeq=0;uint64_t samplerStartUS=0;
+ static uint64_t uptimeUS(){uint64_t a=0,ns=0;clock_get_uptime(&a);absolutetime_to_nanoseconds(a,&ns);return ns/1000;}
+ static void sampleTick(OSObject*owner,IOTimerEventSource*timer){
+  auto*self=OSDynamicCast(ReimsDisplayBringup,owner);if(!self||!self->bar)return;
+  BarIO io{self->bar->getVirtualAddress()};
+  ReimsGTSampler::Sample sample;
+  for(unsigned i=0;i<ReimsGTSampler::count;++i)sample.v[i]=io.read(ReimsGTSampler::regs[i].offset);
+  if(self->samplerState.shouldPrint(sample,ReimsGTSampler::Policy{})){
+   char line[320];
+   ReimsGTSampler::format(line,sizeof(line),self->samplerSeq,(uptimeUS()-self->samplerStartUS)/1000,sample);
+   kprintf("%s",line);
+  }
+  ++self->samplerSeq;timer->setTimeoutMS(250);
+ }
+ void armSampler(){
+  if(!bar||bar->getLength()<ReimsGTSampler::maxOffset()+4){setProperty("ReimsGTSampler",false);return;}
+  samplerLoop=IOWorkLoop::workLoop();
+  samplerTimer=samplerLoop?IOTimerEventSource::timerEventSource(this,sampleTick):nullptr;
+  if(!samplerTimer||samplerLoop->addEventSource(samplerTimer)!=kIOReturnSuccess){
+   OSSafeReleaseNULL(samplerTimer);OSSafeReleaseNULL(samplerLoop);setProperty("ReimsGTSampler",false);return;
+  }
+  char line[320];ReimsGTSampler::header(line,sizeof(line));kprintf("%s",line);
+  samplerStartUS=uptimeUS();samplerTimer->setTimeoutMS(250);setProperty("ReimsGTSampler",true);
+ }
+ void disarmSampler(){
+  if(samplerTimer){samplerTimer->cancelTimeout();samplerLoop->removeEventSource(samplerTimer);OSSafeReleaseNULL(samplerTimer);}
+  OSSafeReleaseNULL(samplerLoop);
+ }
+#endif
  // Only the boot framebuffer may be attached to the IGD.
  bool onlyBootFramebuffer(IOPCIDevice*pci){
   auto*it=pci->getChildIterator(gIOServicePlane);if(!it)return false;
@@ -164,11 +204,17 @@ public:
   setProperty("ReimsBringupStage",uint64_t(REIMS_BRINGUP_STAGE),32);
   setProperty("ReimsBringupPath",ReimsTarget::kPCIPath);
   setProperty("ReimsBringupComplete",bringup());
+#if defined(REIMS_GT_SAMPLER)
+  armSampler();
+#endif
   // Stay attached, even after a refusal, so the result can be read back.
   registerService();
   return true;
  }
  void stop(IOService*provider)override{
+#if defined(REIMS_GT_SAMPLER)
+  disarmSampler();
+#endif
 #if REIMS_BRINGUP_STAGE==3 && defined(REIMS_BRINGUP_EXECUTE)
   // skl_plane_disable_arm, then let it latch before freeing the pages.
   if(planeOn&&bar){
