@@ -529,6 +529,58 @@ Decisive:
   power-gated when idle; it is not evidence of the VM problem. The media fuse
   differs host vs VM, `0x000e00fa` vs `0x000f00ff`, both populated; immaterial.)
 
+#### Cold-GT fix options
+
+The host result reframes the blocker: the GT is cold because nothing in the
+headless guest runs the GPU power-up / fuse download that `i915` (or, on a real
+Mac, the firmware GOP) does. The options, cheapest first:
+
+1. **Topology injection (done, band-aid).** Forces `getGPUInfo` to build a
+   1/4/32 GPU so it clears the "Invalid NumSlice" error. Confirmed-correct
+   values, but does not power the GT up, so the hang is expected to move to the
+   start-up stamp wait. Keep it regardless — it is harmless and necessary once
+   the GT is up, and the next window uses it to tell whether the GT can execute.
+
+2. **GDRST reset (built: `gt-reset-probe/`).** Write `GEN6_GDRST` in the guest
+   and re-read the fuses. Cheapest in-guest lever; no firmware work. Caveat: a
+   GT/engine reset may not re-trigger the cold-boot fuse download (that is
+   typically latched at full power-up), so it may not re-populate. The probe
+   answers this; run it from a snapshot.
+
+3. **PCI FLR (in-guest or host-side).** A function-level reset is more likely
+   than GDRST to re-run fuse download, but it also tears down BAR mappings and
+   device state mid-session. Safer as a host-side experiment (FLR the device,
+   then check the fuses) than from inside the running VM. Not built; needs a
+   host test first to see whether it even re-latches before wiring anything.
+
+4. **IGD GOP / OpRegion route (root-cause fix; not started).** Have the guest
+   firmware initialise the iGPU at boot, as real Mac firmware does. This is the
+   principled fix: macOS then runs against a powered, fuse-downloaded GPU, so
+   the fuse reads, the EU count, and the GT's ability to execute are all solved
+   at the source, and it lights a firmware framebuffer that the takeover can
+   inherit (possibly retiring the stage 2/3 bring-up). Pieces:
+
+   - **Intel GOP driver** — extract the Gen12 Intel GOP EFI executable (and the
+     VBT) from the host firmware (e.g. UEFITool on the IFWI image); version must
+     match the GPU.
+   - **IgdAssignmentDxe** — an OVMF DXE driver that builds the scaffolding a
+     passed-through IGD lacks (OpRegion, stolen-memory/BDSM, the ASLS config
+     register) so the GOP driver can bind. Mainline OVMF has a legacy version;
+     Gen11+/RPL-S needs the extended "VfioIgdPkg for Gen11+" variant. QEMU
+     already exposes the host OpRegion via `x-igd-opregion` (default on) and
+     documents placement in `igd-assign.txt` (IGD at `00:02.0`, which we have).
+   - **Cost / caveats:** a rebuilt OVMF with the Gen11+ assignment DXE, the
+     extracted GOP driver loaded, and typically the IGD presented as the VM's
+     primary/VGA display — which is why this collided with the earlier
+     host-BIOS-primary decision. Gen12 GOP binding in a VM is finicky and not
+     guaranteed. It is a strategic pivot: the port chose port-owned display
+     bring-up specifically to avoid the GOP dependency, but the cold GT makes
+     GOP the cleanest route if resets do not re-latch the fuses.
+
+Decision path: run option 2 (and option 3 host-side) first — if either
+re-populates the fuses and the GT executes, the GOP route is unnecessary. If
+neither does, option 4 is the real fix.
+
 #### Verified against i915 v6.6 (offline, 2026-10-14)
 
 Confirms the fuses are genuinely unpopulated rather than read wrong, and
