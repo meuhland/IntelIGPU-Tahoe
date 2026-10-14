@@ -444,6 +444,44 @@ un-initialised it cannot execute the start-up stamps either, so the hang would
 move from `getGPUInfo` to the stamp wait. GT cold-initialisation is the real
 target; the handoff (phase 7) stays blocked until the accelerator stays up.
 
+#### Verified against i915 v6.6 (offline, 2026-10-14)
+
+Confirms the fuses are genuinely unpopulated rather than read wrong, and
+grounds both next steps (`gh api … intel_sseu.c`, `intel_gt_regs.h`,
+`intel_reset.c`):
+
+- **Gen12 slice-enable should read `0x1`.** `gen12_sseu_info_init` reads
+  `GEN11_GT_SLICE_ENABLE & GEN11_GT_S_ENA_MASK` and does
+  `drm_WARN_ON(s_en != 0x1)`. So Apple's `SliceCountFuse:0x0` is not a Gen12
+  quirk — on real silicon that bit is set. The mirror really is empty.
+- **Subslices come from an enable mask.** Gen12 subslice/DSS count is
+  `hweight(GEN12_GT_GEOMETRY_DSS_ENABLE)` (`0x913c`), expected nonzero (a full
+  TGL GT2 reads `0x3f` = 6 DSS; a UHD 770 GT1 should read a 2-DSS mask).
+  Apple's `DualSubSliceCountFuse:0x0` is the key missing datum.
+- **EU uses a disable mask.** `~GEN11_EU_DISABLE` (`0x9134`); `0x0` disabled =
+  all present, so Apple's `EUDisableFuses:0x0` is ambiguous (also what an
+  empty read gives) — only the media fuse `0x9140=0xf00ff` proves any fuse
+  data is live.
+- **Injection target is i915's own model.** i915 hardcodes 1 slice for Gen12
+  (`intel_sseu_set_info(sseu, 1, 6, 16)`) and derives the rest from the DSS
+  mask, so forcing `NumSlices=1` + a UHD 770 GT1 DSS population (2 DSS → 4 SS
+  in Apple's traditional-SS counting, 8 EU/SS = 32 EU, L3=4) is principled,
+  not a guess.
+- **GDRST sequence for the probe.** `GEN6_GDRST` = `0x941c`;
+  `GEN6_GRDOM_FULL` = bit 0, `GEN6_GRDOM_RENDER` = bit 1. i915
+  `gen6_hw_domain_reset` writes the mask then polls `0x941c` until the mask
+  bits self-clear (2 ms timeout), repeated twice on pre-MTL Gen12. GDRST is
+  not in the GT power well and needs no forcewake for the write/read — so the
+  probe can reset without first solving forcewake.
+
+So: topology injection is well-founded and worth having (if it reaches the
+stamp wait, that itself tells us the GT believes it has EUs), but the reset
+probe tests the root cause — whether a cold GT populates its geometry fuses
+once reset. The reset probe must be run from a snapshot: a GDRST on the
+passed-through GT is the first time this port writes `0x941c`, and the host
+must still recover the IGD for QuickSync afterward (stop VM → hookscript
+rebinds `i915`; reboot the host if it does not).
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.
