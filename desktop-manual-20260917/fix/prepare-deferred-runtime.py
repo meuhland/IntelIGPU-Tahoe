@@ -70,6 +70,28 @@ if target_name=='rpls':
     assert b[l3_site-11:l3_site+18]==bytes.fromhex('83fe01751a83e0204885c0'+'7412'+'83fa04750d41c7876411000004000000')
     assert not any(l3_site<=a<l3_site+2 for a in relocs)
     edits.append((l3_site,b'\x90'*2))
+# RPL-S fuse injection. On the cold, GOP-less passed-through GT the render
+# geometry fuse mirrors read 0 (hardware 2026-10-14: SliceCountFuse and
+# DualSubSliceCountFuse both 0), so getGPUInfo builds a 0-EU GPU, hits the
+# "Invalid NumSlice or NumSubSlices" path, and never reaches the L3 branch
+# above (which is why the L3 patch alone left L3BankCount=0). i915
+# gen12_sseu_info_init expects GEN11_GT_SLICE_ENABLE (0x9138) = 0x1 and derives
+# subslices from GEN12_GT_GEOMETRY_DSS_ENABLE (0x913c). Force the two fuse loads
+# to immediates for a UHD 770 GT1: slice fuse -> 1 (popcount -> NumSlices 1),
+# DSS fuse -> 3 (popcount 2, doubled -> NumSubSlices 4). EU-disable (0x9134)
+# already reads 0, so MaxEUPerSubSlice stays 8 and ExecutionUnitCount becomes
+# 32. That makes the SKU-tier-2 path take 1x4, clearing the error and (with the
+# L3 patch) setting L3BankCount=4. This is injection, not GT cold-init: if the
+# GT genuinely cannot execute, the hang moves to the start-up stamp wait.
+slice_fuse_site=0x284cc  # movl 0x9138(%rax), %r12d
+dss_fuse_site=0x284d3    # movl 0x913c(%rax), %ecx
+if target_name=='rpls':
+    assert b[slice_fuse_site:slice_fuse_site+7]==bytes.fromhex('448ba038910000')
+    assert b[dss_fuse_site:dss_fuse_site+6]==bytes.fromhex('8b883c910000')
+    assert not any(slice_fuse_site<=a<slice_fuse_site+7 for a in relocs)
+    assert not any(dss_fuse_site<=a<dss_fuse_site+6 for a in relocs)
+    edits.append((slice_fuse_site,bytes.fromhex('41bc01000000')+b'\x90'))  # mov r12d,1 ; nop
+    edits.append((dss_fuse_site,bytes.fromhex('b903000000')+b'\x90'))      # mov ecx,3 ; nop
 patched=bytearray(b)
 for at,new in edits:patched[at:at+len(new)]=new
 # Every byte outside the edits is unchanged.
@@ -107,5 +129,7 @@ if target_name=='rpls':
     record['sku_check_patch']='IntelAccelerator::probe: unlisted device IDs take the TGL-LP GT2 SKU instead of the panic'
     record['gt1_l3_bank_file_offset']=hex(l3_site)
     record['gt1_l3_bank_patch']='IntelAccelerator::getGPUInfo: 1x4 GT2 path sets L3BankCount=4 without flag 0x20'
+    record['fuse_injection_file_offsets']=[hex(slice_fuse_site),hex(dss_fuse_site)]
+    record['fuse_injection_patch']='IntelAccelerator::getGPUInfo: slice fuse 0x9138->1, DSS fuse 0x913c->3 (NumSlices 1, NumSubSlices 4, EU 32)'
 (base/'deferred-runtime.json').write_text(json.dumps(record,indent=2)+'\n')
 print(json.dumps(record,indent=2))
