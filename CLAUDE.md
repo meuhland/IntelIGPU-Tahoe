@@ -177,8 +177,28 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   assume the port-lit pipe survives `PrepareRuntime`). Evidence:
   `desktop-manual-20260917/fix/session-20261013-170332-396335-start/` +
   `~/work/igpu-notes/window-step4-*`. Details in docs/PORT-RPLS-UHD770.md
-  ("First accelerator start on `a780`"). Next: narrow where it wedges
-  (GuC/engine vs ring/GGTT), read-only, before another start.
+  ("First accelerator start on `a780`").
+- Phase 6 diagnostic window (2026-10-14, serial console `serial=3`): captured
+  the accelerator's `[IGPU]` HWCAPS log. **Root cause: the render-GT geometry
+  fuses read zero** — `NumSlices/NumSubSlices/EU/L3BankCount = 0`, "Invalid
+  NumSlice or NumSubSlices", so the driver builds a 0-EU GPU and wedges in
+  `startGraphicsEngine` (right after scheduler config; **no GuC** — host
+  scheduling forced, so `-disablegfxfirmware` is irrelevant). Narrowed:
+  (1) Apple reads the correct registers — `getGPUInfo` reads 0x9138
+  (`GEN11_GT_SLICE_ENABLE`), 0x913c (`GEN12_GT_GEOMETRY_DSS_ENABLE`), 0x9134
+  (`GEN11_EU_DISABLE`); i915 v7.2 shares these across TGL and ADL-S/RPL-S, so
+  the "wrong offset on RPL-S" idea is out. (2) Forcewake works — the media fuse
+  0x9140 reads `0xf00ff` in the same `SafeForceWake(5)` bracket. (3) Display
+  power + CDCLK + DBUF (a stage-2 run before `igpu-start`) do **not** change
+  `NumSlices`. Leading hypothesis: the cold, GOP-less, passed-through GT is not
+  reset / fuse-downloaded, and `getGPUInfo` reads the mirrors too early. The
+  GT sampler never printed (its work-loop starved during `start`); Apple's
+  verbose log carried the diagnosis. Evidence:
+  `~/work/igpu-notes/window-20261014-serial-hwcaps.txt`. Next (offline): a
+  GT-reset probe to test whether resetting the GT populates 0x9138/3c/34, and a
+  topology-injection patch (force 1/4/32/L3=4 when fuses read 0) — but
+  injection alone likely won't suffice if the GT can't execute (stamp wait),
+  so GT cold-init is the real target.
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On

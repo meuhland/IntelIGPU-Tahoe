@@ -388,10 +388,61 @@ assume the port-lit pipe survives `PrepareRuntime`.
 
 Evidence (survives reboot): `session-20261013-170332-396335-start/`
 (`startup.log`, `before.plist`) and
-`~/work/igpu-notes/window-step{3,4}-*-20261013-*.txt`. Next: narrow down where
-the accelerator wedges (GuC/engine init vs. ring/GGTT), read-only, before any
-further start attempt; the handoff (phase 7) stays blocked until the
-accelerator stays up.
+`~/work/igpu-notes/window-step{3,4}-*-20261013-*.txt`.
+
+### Render topology reads zero (phase 6, hardware, 2026-10-14)
+
+With a serial console (`serial=3`, `qm set 113 -serial0 socket`) the
+accelerator's `[IGPU]` HWCAPS log was captured across `igpu-start`. It names
+the root cause:
+
+```
+HWCAPS - NumSlices:0      SliceCountFuse:0x0
+HWCAPS - NumSubSlices:0   DualSubSliceCountFuse:0x0
+HWCAPS - MaxEUPerSubSlice:8   EUDisableFuses:0x0  ExecutionUnitCount:0
+HWCAPS - ERROR: Invalid NumSlice or NumSubSlices for TGLLP GT2 ...
+HWCAPS - L3BankCount: 0
+```
+
+The driver builds a 0-EU GPU and then wedges in `startGraphicsEngine`
+immediately after scheduler configuration (`Scheduler Throttle Cap = 100ms` is
+the last `[IGPU]` line). GuC firmware is **not** loaded — the log shows `Forced
+to use Host Preemptive Scheduler` / `Will fallback to host-side scheduling` —
+so `-disablegfxfirmware` is irrelevant; the hang is the first stamp submissions
+/ `finishAllStamps` never completing on a GPU with no execution units (which is
+why `ioreg` blocked: `finishAllStamps` holds the accelerator IOLock).
+
+Narrowed by static read of the `sle` binary and i915 v7.2:
+
+- **Apple reads the correct registers.** `getGPUInfo` (`0x2847e`) does one
+  `SafeForceWake(true, 5)` … `SafeForceWake(false, 5)` bracket and reads
+  `0x9138` (`GEN11_GT_SLICE_ENABLE`), `0x913c` (`GEN12_GT_GEOMETRY_DSS_ENABLE`
+  / Gen11 `GT_SUBSLICE_DISABLE`), `0x9134` (`GEN11_EU_DISABLE`), `0x9140`
+  (`GEN11_GT_VEBOX_VDBOX_DISABLE`). TGL and ADL-S/RPL-S are all Gen12 pre-Xe
+  and share these offsets in i915, so "wrong offset on RPL-S" is ruled out.
+- **Forcewake works.** The media fuse `0x9140` reads `0xf00ff` (VEBox 4 / VDBox
+  8) inside the same forcewake bracket where the geometry fuses read 0.
+- **Display power / CDCLK / DBUF are not the lever.** Running a stage-2 execute
+  bring-up first (PowerWell1 `0x045404` = `HSW_PWR_WELL_CTL2`, CDCLK, DBUF)
+  before `igpu-start` left `NumSlices` at 0.
+
+So the render-GT geometry fuse mirrors genuinely read 0 in the VM. Leading
+hypothesis: the cold, GOP-less, passed-through GT has not been reset / had its
+fuses downloaded, and `getGPUInfo` reads the mirrors very early in `start`. On
+a real Mac the GOP/firmware initialises the iGPU first; this headless
+passthrough never does. The GT sampler (`gt_sampler.hpp`) did not print — its
+work-loop timer starved while the accelerator's `start` thread ran — so Apple's
+own verbose log carried the diagnosis. Raw log and analysis:
+`~/work/igpu-notes/window-20261014-serial-hwcaps.txt`.
+
+Next, offline: (1) a GT-reset probe (read `0x9138/3c/34`, then minimally write
+`GDRST` and re-read) to test whether resetting the cold GT populates the
+geometry fuses; (2) a topology-injection patch for `getGPUInfo` (force
+`NumSlices=1`, `NumSubSlices=4`, `EU=32`, `L3BankCount=4` when the fuse reads
+come back 0). Injection alone likely will not suffice: if the GT is truly
+un-initialised it cannot execute the start-up stamps either, so the hang would
+move from `getGPUInfo` to the stamp wait. GT cold-initialisation is the real
+target; the handoff (phase 7) stays blocked until the accelerator stays up.
 
 ## Prior art
 
