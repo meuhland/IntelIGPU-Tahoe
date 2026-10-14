@@ -442,3 +442,57 @@ From-scratch Tiger Lake driver (`8086:9A49`) that reuses Apple's bundle
 identifier `com.apple.driver.AppleIntelTGLGraphics` but contains no Apple code.
 Its README states it has no command submission or Metal yet. Not a substitute
 for the Apple binary this project patches.
+
+## Rejected approaches
+
+### Sharing the iGPU between the host and the VM (vGPU / SR-IOV)
+
+The guest needs the whole real iGPU because Apple's TGL driver drives the PF
+directly (FFFF isolation, native MMIO/GGTT, the stage-3 display writes), so
+the host cannot keep QuickSync on the same device while the VM runs.
+
+- **GVT-g** (Intel mediated `mdev` vGPU, the closest analogue to NVIDIA vGPU)
+  supported only Broadwell–Comet Lake and was removed before Gen12; RPL-S is
+  not supported.
+- **SR-IOV**: the `a780` PF does advertise the capability (`lspci -vvs
+  00:02.0`: `Capabilities: [320 v1] SR-IOV`, currently `Enable-`), but it does
+  not help here. Enabling it keeps the PF bound to the host driver (the PF is
+  what provisions VFs), which is exactly what the VM cannot share; a VF is a
+  PF/GuC-mediated surface with no display engine (Intel GPU SR-IOV is
+  render/media only), so Apple's driver — which needs the real PF and a
+  display — cannot use one.
+
+The way to run longer bring-up sessions without starving transcoding is
+separate silicon: a cheap discrete GPU on the host for QuickSync, leaving the
+iGPU passed through to the VM.
+
+### A paravirtual Metal driver for the macOS guest
+
+Idea: instead of passing the iGPU through, have a macOS guest Metal driver
+marshal commands to a host renderer, so the host keeps the GPU. Not viable for
+this project:
+
+- **No public Metal driver SPI.** Apple's GPU bundles implement private,
+  undocumented driver protocols (the `MTLDevice`/command-queue backend, the
+  IOGPU resource interfaces). There is no supported way to write a conforming
+  Metal backend; it would mean reverse-engineering that private ABI, which
+  also shifts across macOS releases. This is the same reason the port reuses
+  Apple's TGL Metal bundle rather than writing its own, and why
+  `pawan295/Appleinteltgldriver.kext` has no Metal.
+- **Both ends plus translation.** There is no macOS virtio-gpu guest driver to
+  build on, so it would mean writing the guest Metal backend, a guest→host
+  transport, a host service translating Apple Metal command encoding to a host
+  API (e.g. Vulkan via Mesa), and shader translation from Apple AIR to SPIR-V
+  — a multi-person-year effort against moving, undocumented targets.
+- **It discards the premise.** The project's value is native hardware Metal
+  through Apple's real driver; a paravirtual stack inherits none of the
+  bring-up work and would give translated Metal at worse performance and
+  compatibility than passthrough.
+
+It is not impossible in the abstract — Apple ships exactly this as *Apple
+Paravirtualized Graphics* for macOS guests under Virtualization.framework on
+Apple Silicon hosts — but that is Apple-internal, Apple-Silicon-host, and
+closed; nothing equivalent exists for a QEMU/Linux host with an Intel GPU, and
+Hackintosh VMs use passthrough for acceleration. A paravirtual *framebuffer*
+(no Metal, like the current QXL display) remains the only para-virtual option,
+and gives display without acceleration.
