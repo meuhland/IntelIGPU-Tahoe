@@ -248,3 +248,5 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
 - Prior art (NootedGreen etc.) and the TGL binary situation are in
   docs/PORT-RPLS-UHD770.md. NootedGreen's license is non-commercial and
   GPL-incompatible: use its findings, never copy its code.
+
+- Phase 6 fix builds (code, not run on hardware, 2026-10-14): (1) topology injection in prepare-deferred-runtime.py forces getGPUInfo's slice/DSS fuse loads to 1/3 → NumSlices 1, NumSubSlices 4, EU 32, L3 4 (candidate UUID 3a7cfb99…); (2) gt-reset-probe/ reads the geometry fuses raw/forcewake/after GEN6_GDRST (REIMS_GT_RESET_EXECUTE, snapshot only) to test whether a reset populates them. Both verified vs i915 v6.6 and host-tested (scripts/test.sh). See docs/PORT-RPLS-UHD770.md "Offline builds for the next window".

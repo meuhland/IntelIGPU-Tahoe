@@ -444,6 +444,32 @@ un-initialised it cannot execute the start-up stamps either, so the hang would
 move from `getGPUInfo` to the stamp wait. GT cold-initialisation is the real
 target; the handoff (phase 7) stays blocked until the accelerator stays up.
 
+#### Offline builds for the next window (2026-10-14)
+
+Both next steps are built and host-tested (not run on hardware):
+
+- **Topology injection** — `prepare-deferred-runtime.py` with
+  `REIMS_TARGET=rpls` now forces the two geometry fuse loads in `getGPUInfo`
+  to immediates (`0x9138`→1, `0x913c`→3) so NumSlices=1, NumSubSlices=4, EU=32,
+  and the 1x4 branch sets L3BankCount=4. Verified against the `sle` binary;
+  new candidate UUID `3a7cfb99a8d3ec6cda1108ade098a30c`. Re-prepare and
+  reinstall the candidate to use it. If the GT still cannot execute, the hang
+  moves from `getGPUInfo` to the start-up stamp wait — which is itself the
+  signal that cold-init (below), not topology, is the remaining blocker.
+- **GT-reset probe** — `gt-reset-probe/` (`gt_reset.hpp`, read-only by
+  default; `REIMS_GT_RESET_EXECUTE=1` issues `GEN6_GDRST`). It reads the
+  geometry fuses raw, with forcewake, and after a full GDRST, and reports
+  whether the reset populated them (`read_gt_reset.py`). Run the execute build
+  only from a snapshot. If `ResetPopulatedFuses` is false, GDRST is not the
+  lever and the cause is deeper — a PCI FLR, or the `vfio-pci` bind reset
+  clearing the host's fuse download before the VM sees the device (worth
+  checking host-side: whether host `i915` reads these fuses nonzero before the
+  hookscript hands off).
+
+Run order in a window: load the injected candidate and `igpu-start`; if it now
+reaches the stamp wait instead of the `getGPUInfo` error, load the GT-reset
+probe (execute) to test whether a reset revives the GT.
+
 #### Verified against i915 v6.6 (offline, 2026-10-14)
 
 Confirms the fuses are genuinely unpopulated rather than read wrong, and

@@ -44,3 +44,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
  display-bringup/test_fb_memory.cpp -o "$timing_test/test_fb_memory"
 "$timing_test/test_fb_memory"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
+ gt-reset-probe/test_gt_reset.cpp -o "$timing_test/test_gt_reset"
+"$timing_test/test_gt_reset"
