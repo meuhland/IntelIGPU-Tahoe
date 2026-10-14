@@ -498,6 +498,37 @@ intel_reg read 0x9138 0x913c 0x9134 0x9140
 
 Record the host readings next to the window evidence.
 
+#### Host result 2026-10-14 (iGPU on the host, `i915` bound)
+
+```
+intel_reg: 0x9138=0x00000001  0x913c=0x00000003  0x9134=0x00000000  0x9140=0x000e00fa
+i915_sseu_status: Available 1 slice / 2 DSS / 32 EU;  Enabled 0 / 0 / 0 (slice power-gated, idle)
+```
+
+Decisive:
+
+- **The silicon fuses are fine.** `0x9138`=1 and `0x913c`=3 under `intel_reg`'s
+  forcewake — exactly the values the topology injection forces, so the
+  injection is confirmed against real hardware, not inferred. `i915_sseu_status`
+  "Available" agrees (1 slice, 2 DSS, 32 EU).
+- **So the VM's zeros are not a wrong register or a Gen12 quirk.** In the VM
+  the same registers read 0 *even though Apple forcewakes*. The fuse-mirror
+  download that `i915` performs when it powers the GPU up at bind has not
+  happened in the guest: the `vfio-pci` handoff resets the device, and the
+  headless VM has no GOP/firmware to re-run the GPU power-up, so the mirrors
+  stay 0. This is the "cold, GOP-less GT" from the window, now with host proof.
+- **Implication for the fix.** Topology injection makes `getGPUInfo` build the
+  right GPU, but if the GT itself was never powered up/fuse-downloaded it also
+  cannot execute the start-up stamps, so expect the hang to move to the stamp
+  wait. The real lever is giving the guest GT the power-up that `i915`/GOP
+  does: the GT-reset probe tests the cheapest form (GDRST); if that does not
+  re-latch the fuses, the next options are a PCI FLR or the IGD option-ROM/GOP
+  route (OVMF `IgdAssignmentDxe` + Intel GOP), which the user previously
+  declined but which is exactly what powers the GPU up on a real Mac.
+- (`i915_sseu_status` "Enabled" reading 0 on the host is normal — slices are
+  power-gated when idle; it is not evidence of the VM problem. The media fuse
+  differs host vs VM, `0x000e00fa` vs `0x000f00ff`, both populated; immaterial.)
+
 #### Verified against i915 v6.6 (offline, 2026-10-14)
 
 Confirms the fuses are genuinely unpopulated rather than read wrong, and
