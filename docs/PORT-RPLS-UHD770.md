@@ -581,6 +581,53 @@ Decision path: run option 2 (and option 3 host-side) first — if either
 re-populates the fuses and the GT executes, the GOP route is unnecessary. If
 neither does, option 4 is the real fix.
 
+#### Host-side cold-GT experiment (no VM window)
+
+Options 2 and 3, and *which handoff step* colds the GT, can all be answered on
+the Proxmox host without booting macOS: `proxmox/coldgt_check.py` hands the
+iGPU to `vfio-pci` the way a VM start does, then reads the geometry fuses
+(with forcewake, as Apple does) after each step — the bind / D3 round trip, a
+sysfs FLR (the reset QEMU applies when it opens the device), and a GDRST (the
+i915 sequence, same as `gt-reset-probe/`). Host-tested against a simulated
+device (`proxmox/test_coldgt_check.py`); not yet run on hardware. Costs a few
+minutes of transcoding downtime and no snapshot; worst case is the host
+reboot the hookscript already documents.
+
+Guards: refuses any write unless the driver is `vfio-pci` (or none) and no
+process holds the vfio group open (VM running); refuses a device other than
+`8086:a780`; `read` alone is safe under `i915`. `--wake` sets
+`power/control=on` for the run (vfio-pci runtime-suspends an idle device to
+D3, where BAR reads are all-ones); `--enable-decode` turns PCI memory decode on
+if it is off. Both are restored on exit.
+
+```sh
+# VM 113 stopped. Copy proxmox/coldgt_check.py to the host first.
+dmesg -w                                          # second shell, keep it open
+/var/lib/vz/snippets/igpu-hookscript.sh 113 pre-start   # stops /dev/dri CTs, binds vfio-pci
+python3 /root/coldgt_check.py read --wake         # read-only sanity check
+python3 /root/coldgt_check.py all --wake | tee /root/coldgt-$(date +%Y%m%d-%H%M%S).log
+/var/lib/vz/snippets/igpu-hookscript.sh 113 post-stop   # back to i915, CTs restart
+cat /sys/kernel/debug/dri/*/i915_sseu_status      # i915 must recover: 1 slice / 2 DSS / 32 EU
+intel_reg read 0x9138 0x913c                      # expect 0x1 / 0x3 again
+```
+
+The script prints one `=>` line per question. Reading them:
+
+| Verdict | Meaning | Next |
+|---|---|---|
+| `cold before any FLR: … D3 round trip …` | either the `i915` unbind or the vfio-pci idle D3 (vfio-pci runtime-suspends right after bind, so this is the usual case) | rerun with vfio-pci `disable_idle_d3=1` (read at module load: `options vfio-pci disable_idle_d3=1` in modprobe.d, or `modprobe -r vfio-pci; modprobe vfio-pci disable_idle_d3=1` before the hookscript); still cold → the unbind, see GDRST/FLR rows |
+| `cold before any FLR: … no D3 involved` | `i915` unbind (or the bind) leaves it cold | GDRST/FLR verdicts below decide; else option 4 |
+| `FLR COLDS the GT` | fuses survive the bind but QEMU's reset-on-open wipes them | disable the reset before the VM starts: `echo > /sys/bus/pci/devices/0000:00:02.0/reset_method` (empty string disables reset; `echo default >` restores, per the kernel's sysfs-bus-pci ABI doc), then a VM window to see if the guest reads 1/3 |
+| `FLR REVIVES the fuses` | option 3 works | wire an FLR into the handoff |
+| `GDRST REVIVES the fuses` | option 2 works | the in-guest `gt-reset-probe` execute is worth its window |
+| `GDRST does not re-populate` + no FLR revive | resets are not the lever | option 4 (GOP), or keep the host's warm state via the two host knobs above |
+
+The cheapest possible outcome is the first or third row: a one-line host
+change (no D3, or no reset-on-open) hands the guest the warm GT that `i915`
+left, and the guest reads 1/3 without any GOP work. Then run the next VM window
+with that knob set: Apple's `getGPUInfo` should read the real fuses, so the
+topology injection becomes a no-op safety net.
+
 #### Verified against i915 v6.6 (offline, 2026-10-14)
 
 Confirms the fuses are genuinely unpopulated rather than read wrong, and

@@ -6,6 +6,7 @@ python3 desktop-manual-20260917/fix/test_session.py
 python3 desktop-manual-20260917/fix/test_desktop_handoff.py
 python3 desktop-manual-20260917/fix/runtime-video-20260918/test_runtime_video.py
 python3 display-bringup/test_read_gt_serial.py
+python3 proxmox/test_coldgt_check.py
 (cd desktop-reset-recovery-20260917/collector-v5 && python3 test_events.py && python3 test_store.py)
 timing_test=$(mktemp -d)
 trap 'rm -rf "$timing_test"' EXIT

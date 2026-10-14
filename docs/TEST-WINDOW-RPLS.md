@@ -12,6 +12,12 @@ re-prepared TGL candidate, rpls gate/DesktopLink/VideoDiscovery, both stage-3
 bring-up builds, the Metal bundle, `-allow3d` in the boot args, then a VM
 snapshot.
 
+Run the host-side cold-GT experiment first
+([PORT-RPLS-UHD770.md](PORT-RPLS-UHD770.md), "Host-side cold-GT experiment").
+It needs no VM boot. If it names a host knob (`disable_idle_d3=1`, or
+disabling reset via `reset_method`), set that knob before this window. Then
+the guest should read the real geometry fuses (1/3) instead of zero.
+
 ## In the window
 
 Stop at the first unexpected result, save evidence, and roll back the snapshot.
