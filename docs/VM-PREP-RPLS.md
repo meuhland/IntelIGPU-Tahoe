@@ -27,8 +27,9 @@ REIMS_TARGET=rpls python3 desktop-manual-20260917/fix/prepare-deferred-runtime.p
 mv desktop-manual-20260917/fix/ReimsTGLManualRuntime.kext ~/work/tgl-candidates/
 ```
 
-Expect `"candidate_uuid": "89dc2f5292cda68ec64560e2a5fa0dcd"`. Any other
-UUID or an assertion error: stop.
+Expect `"candidate_uuid": "3a7cfb99a8d3ec6cda1108ade098a30c"` (the SKU + L3 +
+geometry-fuse-injection build; `89dc2f52…` was the earlier SKU+L3-only
+candidate without the injection). Any other UUID or an assertion error: stop.
 
 ## 3. Build the kernel components for rpls
 
@@ -154,8 +155,9 @@ kmutil showloaded | egrep 'AppleIntelTGLGraphics|ReimsADLManualActivation|ReimsA
 ```
 
 Expect `-allow3d` and `serial=3` in the boot args, build `25G83`, and the loaded
-`AppleIntelTGLGraphics` UUID to be the new candidate, `89dc2f52…0dcd`. The
-old 6-byte candidate (`edbb0eb4…af9a`) means step 7 did not take: redo it.
+`AppleIntelTGLGraphics` UUID to be the injected candidate, `3a7cfb99…a30c`. An
+earlier UUID (`89dc2f52…0dcd` = SKU+L3 only, or `edbb0eb4…af9a` = 6-byte) means
+step 7 did not take the current build: redo it.
 
 ## 11. Snapshot
 

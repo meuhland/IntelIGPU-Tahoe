@@ -470,6 +470,34 @@ Run order in a window: load the injected candidate and `igpu-start`; if it now
 reaches the stamp wait instead of the `getGPUInfo` error, load the GT-reset
 probe (execute) to test whether a reset revives the GT.
 
+#### Host-side fuse check (no VM window; do it when the iGPU is on the host)
+
+The biggest open question — are the geometry fuses genuinely unpopulated, or
+does the `i915`→`vfio-pci` handoff clear them? — can be answered on the host,
+with the iGPU bound to `i915` for transcoding, no macOS VM involved. If the
+host sees the full GT1 topology, the fuses are populated under `i915` and the
+handoff (the `vfio-pci` bind reset, or `i915` powering the GT down on unbind)
+is what the VM inherits as zero — which points the fix host-side rather than
+in the guest.
+
+```sh
+# i915's own computed topology (expect ~1 slice, 2 DSS, 32 EU on UHD 770 GT1):
+cat /sys/kernel/debug/dri/*/i915_sseu_status
+# Raw geometry fuses (intel-gpu-tools); compare with the VM's zeros:
+intel_reg read 0x9138 0x913c 0x9134 0x9140
+```
+
+- Host shows a populated topology / `0x9138`=`0x1`, `0x913c` nonzero → the
+  handoff clears them. Next: keep the device powered across the handoff
+  (avoid D3 on `vfio-pci` bind, e.g. `disable_idle_d3=1`), or see whether the
+  reset method `vfio-pci` applies on bind is what wipes the fuse download, and
+  whether a plain GDRST (the probe) or a GOP/firmware init is needed in the
+  guest to re-download them.
+- Host also reads 0 → the fuses are never populated even under `i915`, so the
+  cause is more fundamental and the in-VM GDRST probe is still the test.
+
+Record the host readings next to the window evidence.
+
 #### Verified against i915 v6.6 (offline, 2026-10-14)
 
 Confirms the fuses are genuinely unpopulated rather than read wrong, and
