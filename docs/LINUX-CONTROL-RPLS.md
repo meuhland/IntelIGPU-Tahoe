@@ -112,10 +112,12 @@ the containers (check `dmesg` for i915 on the host as after VM 113).
 |---|---|---|---|
 | `glxgears` runs, no hang, no DMAR | either | execlist submission works on this IGD in this VM | the macOS failure is in what Apple submits or how it maps it (context image/LRCA/GGTT): the macOS context dump decides |
 | `GPU HANG` / reset, CAT error or DMAR fault | works | execlists from a VM without firmware init break, GuC submission does not | try Apple's GuC scheduler in macOS (profile `GraphicsSchedulerSelect` default instead of 5) |
-| hangs | hangs | the VM setup itself breaks command execution | firmware route (OVMF IgdAssignmentDxe + GOP) or a bare-metal control |
+| hangs | hangs | the VM setup itself breaks command execution | firmware route (OVMF IgdAssignmentDxe + GOP); no bare-metal or ADL-P reference is available |
 | i915 fails to probe or to load GuC | | i915 reports why in `dmesg` | read the reason before anything else |
 
-Also compare run A's `i915_engine_info` for `rcs0` with our watch: `RING_START`,
+This run is also the project's only known-good reference on this hardware
+(no ADL-P machine and no bare-metal macOS boot are available). Compare run
+A's `i915_engine_info` for `rcs0` with our watch: `RING_START`,
 `RING_CTL` (valid), `ACTHD`, `CCID`, execlist status and the CSB pointers after
 real work. They show what a working Gen12 RCS looks like on this exact
 hardware and VM.
