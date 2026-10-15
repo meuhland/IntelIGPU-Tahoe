@@ -10,15 +10,22 @@ namespace G=ReimsEDID::R;
 // GMBUS+SCDC register model: records the last GMBUS3 dword so a 2-byte
 // write [offset,value] and an indexed 1-byte read both resolve correctly.
 struct Model2 {
- uint8_t tmds=0x00; uint32_t g2=0,g3=0; uint64_t now=0; bool nak=false; uint8_t readVal=0;
+ uint8_t tmds=0x00; uint32_t g2=0,g3=0; uint64_t now=0,stopAt=0; bool nak=false,stopping=false; uint8_t readVal=0;
  uint64_t nowUS(){return now;} void delayUS(uint32_t us){now+=us;}
  // GMBUS2 bit 15 (INUSE) behaves as a read-to-set semaphore that nothing in
  // this driver releases (i915 never touches it either): every read leaves it set.
- uint32_t read(uint32_t a){ if(a==G::gmbus2){const uint32_t v=g2;g2|=G::inUse;return v;} if(a==G::gmbus3)return readVal; return 0; }
+ // After a STOP the bus stays ACTIVE for a while (20 us here), as on hardware.
+ uint32_t read(uint32_t a){
+  if(a==G::gmbus2){
+   if(stopping&&now>=stopAt+20){g2&=~G::active;stopping=false;}
+   const uint32_t v=g2;g2|=G::inUse;return v;
+  }
+  if(a==G::gmbus3)return readVal; return 0;
+ }
  void write(uint32_t a,uint32_t v){
   if(a==G::gmbus3){g3=v;return;}
   if(a==G::gmbus1){
-   if(v&G::cycleStop){g2&=~G::active;return;}
+   if(v&G::cycleStop){stopping=true;stopAt=now;return;}
    g2|=G::active;
    if(nak){g2|=G::satoer;return;}
    if(v&G::slaveRead){

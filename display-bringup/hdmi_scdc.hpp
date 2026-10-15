@@ -28,9 +28,26 @@ template<class IO> class Scdc {
    io.delayUS(5);
   }
  }
- Status finish(Status s){io.write(G::gmbus1,G::cycleStop|G::swRdy);io.write(G::gmbus0,0);return s;}
+ bool waitIdle(uint32_t timeoutUS){
+  const uint64_t deadline=io.nowUS()+timeoutUS;
+  while(io.read(G::gmbus2)&G::active){
+   if(io.nowUS()>=deadline)return false;
+   io.delayUS(5);
+  }
+  return true;
+ }
+ // End of a transfer as in i915 gmbus_xfer: STOP, wait for the bus to go idle
+ // (gmbus_wait_idle, 10 ms), then deselect the pin. Without the wait the next
+ // transfer found the bus still ACTIVE (2026-10-15 4K60 run: SCDC read, then
+ // the write refused as Busy).
+ Status finish(Status s){
+  io.write(G::gmbus1,G::cycleStop|G::swRdy);
+  const bool idle=waitIdle(10000);
+  io.write(G::gmbus0,0);
+  return s==Status::OK&&!idle?Status::Timeout:s;
+ }
  Status begin(uint8_t pin){
-  if(io.read(G::gmbus2)&G::active)return Status::Busy;  // see edid_read.hpp
+  if(!waitIdle(10000))return Status::Busy;  // see edid_read.hpp
   io.write(G::gmbus0,G::rate100|pin);io.write(G::gmbus4,0);
   return Status::OK;
  }

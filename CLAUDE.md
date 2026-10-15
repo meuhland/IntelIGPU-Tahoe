@@ -273,9 +273,13 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   bit but never reads or clears it, and it stays set once read, so every
   transfer after the first was refused (4K30 only ever made one). Now gated on
   `GMBUS_ACTIVE` (edid_read.hpp, hdmi_scdc.hpp); test models make GMBUS2 reads
-  set INUSE and reproduced the failure before the fix. Rebuilt stage-3 kexts:
-  dry `06D6E32F`, execute+sampler `F094C2BB`, 4K60 dry `D44F9222`, 4K60
-  execute `EEF10F67` (`REIMS_BRINGUP_UHD60=1`).
+  set INUSE and reproduced the failure before the fix. Second 4K60 run: EDID
+  `OK`, but SCDC still `Busy`: `hdmi_scdc.hpp` `finish()` wrote STOP and
+  deselected the pin without waiting for the bus to go idle, so the write
+  after the read found it still `ACTIVE`. Now waits like i915
+  `gmbus_wait_idle` (10 ms), and both readers wait up to 10 ms for a busy bus
+  before refusing; the SCDC test model holds `ACTIVE` 20 us after STOP and
+  reproduced it first.
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.
