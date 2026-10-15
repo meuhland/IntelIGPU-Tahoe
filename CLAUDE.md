@@ -201,6 +201,13 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   topology-injection patch (force 1/4/32/L3=4 when fuses read 0) — but
   injection alone likely won't suffice if the GT can't execute (stamp wait),
   so GT cold-init is the real target.
+- Forcewake hold on hardware (2026-10-15): with candidate `3a7cfb99` and the
+  hold probe loaded, the guest GT wakes (held fuses 1/3/0/`0xe00fa` = host
+  values) and HWCAPS reports the real topology (1 slice, 4 sub-slices, 32 EU,
+  L3 4). `start` still hangs silently after `Scheduler Throttle Cap` (no reset,
+  timeout or panic in 3-4 min), so the zero topology was not the hang's cause.
+  Suspect: standalone interrupt fallback ("Using Local Filter Interrupt
+  Source"). Details in the port doc "Forcewake hold on hardware".
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On

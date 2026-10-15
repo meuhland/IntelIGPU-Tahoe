@@ -816,6 +816,30 @@ passed-through GT is the first time this port writes `0x941c`, and the host
 must still recover the IGD for QuickSync afterward (stop VM → hookscript
 rebinds `i915`; reboot the host if it does not).
 
+### Forcewake hold on hardware (phase 6, 2026-10-15)
+
+Candidate `3a7cfb99` (SKU + L3 + geometry injection) loaded, then the
+forcewake-hold probe (`REIMS_GT_FORCEWAKE_HOLD=1`, UUID `0C82A034`) before
+`igpu-start`, serial console capturing.
+
+- Probe: raw fuses `0x9138/913c/9134/9140` = 0/0/0/0; held (render + GT
+  forcewake, both acked) = `1`/`3`/`0`/`0xe00fa`, identical to the host's i915
+  reads. The GT wakes in the guest; the empty standalone `SafeForceWake` was
+  why the fuses read zero.
+- `igpu-start` with the hold: HWCAPS now reports the real topology from the
+  fuses (`SliceCountFuse 0x1`, `DualSubSliceCountFuse 0x3`, NumSlices 1,
+  NumSubSlices 4, EU 32, L3BankCount 4, media `0x10005` = 1 VEBox / 2 VDBox;
+  no "Invalid NumSlice" error).
+- The hang is unchanged: the last `[IGPU]` line is still `Scheduler Throttle
+  Cap = 100ms.`, `session.py`'s `ioreg` child sits in state `U`, and nothing
+  more appears on serial over 3-4 minutes (no reset, timeout or watchdog
+  panic). The zero topology was a real bug but not the cause of the hang.
+- Open suspect from the log: `Failed to register with service. Using Local
+  Filter Interrupt Source!` (standalone mode, no framebuffer controller).
+
+Evidence: `~/work/igpu-notes/window-20261015-gt-hold.txt`,
+`desktop-manual-20260917/fix/session-20261015-130724-068558-start/`.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.
