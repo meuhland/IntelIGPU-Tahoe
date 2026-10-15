@@ -76,7 +76,9 @@ class ReimsDisplayBringup:public IOService {
   auto*self=OSDynamicCast(ReimsDisplayBringup,owner);if(!self||!self->bar)return;
   BarIO io{self->bar->getVirtualAddress()};
   ReimsGTSampler::Sample sample;
-  for(unsigned i=0;i<ReimsGTSampler::count;++i)sample.v[i]=io.read(ReimsGTSampler::regs[i].offset);
+  const uint64_t len=self->bar->getLength();
+  for(unsigned i=0;i<ReimsGTSampler::count;++i)
+   sample.v[i]=ReimsGTSampler::readColumn(i,sample.v,len,[&](uint32_t o){return io.read(o);});
   if(self->samplerState.shouldPrint(sample,ReimsGTSampler::Policy{})){
    char line[ReimsGTSampler::lineBuffer];
    const uint64_t ms=(uptimeUS()-self->samplerStartUS)/1000;

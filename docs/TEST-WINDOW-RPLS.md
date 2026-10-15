@@ -85,10 +85,19 @@ Next run of this section, additions:
 - Each sample now shows on serial as four `ReimsGT <seq> <ms> @0/@10/@20/@30 …`
   lines (and the header as four `ReimsGT seq ms @… names` lines). None may
   be cut: if a line ends mid-value, report it.
-- Host, during the hang: `dmesg -T | grep -iE 'dmar|iommu|vfio|00:02.0' | tail -40`.
-  DMA fault lines naming `00:02.0` with an address mean the first submission
-  made the GPU fetch memory the VM does not map, the leading explanation for
-  the catastrophic error. Save them with the capture.
+- Host, at three points: right after `qm start`, during the hang (after
+  `igpu-start`), and after `qm stop`:
+  `dmesg -T | grep -iE 'dmar|iommu|vfio|00:02.0|igpu-hookscript' | tail -40`, plus
+  `date` each time, so every fault can be placed. Read the fault reason:
+  `0x02` "Present bit in context entry is clear" means the device had no
+  IOMMU domain at that moment (vfio bound without QEMU, i.e. before start or
+  after stop), so it says the GPU was still writing then, not that the VM's
+  mapping is wrong. `0x05`/`0x06` (page-table read/write) with an address
+  *during* the hang would mean a GGTT entry points outside guest RAM.
+  2026-10-15: one `DMA Write … fault addr 0x0 [fault reason 0x02]`, time
+  not yet placed. A write to 0 in the VM would land silently in guest RAM at
+  0; the watch's new `hwsPteLo/Hi` (the status page's GGTT entry) and
+  `ggttPte0Lo/Hi` columns show whether the GPU's writes are aimed at physical 0.
 
 1. Host: serial capture running (VM-PREP-RPLS.md 9b; only one reader on the
    socket).

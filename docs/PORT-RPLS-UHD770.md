@@ -1034,6 +1034,36 @@ The sampler now also reads RCS `IPEIR`, `INSTDONE`, `DMA_FADD`, `BBADDR`,
 (i915 v6.6), and the verdict reports `CAT_ERROR`, the reset requests and the
 context-status pointer.
 
+#### Host DMAR fault and where the GPU writes (2026-10-15)
+
+The host logged one IOMMU fault from the IGD:
+`DMAR: [DMA Write NO_PASID] Request device [00:02.0] fault addr 0x0 [fault reason 0x02] Present bit in context entry is clear`.
+Reason `0x02` means the device had **no** IOMMU context at that moment, i.e.
+it was bound to `vfio-pci` but not attached to the VM's domain (before QEMU
+opened it or after QEMU released it). While the VM runs, the context entry is
+present and a page-table problem would log reason `0x05`/`0x06` instead. So
+this fault says the GPU was still issuing **writes to address 0** when it was
+detached; it does not by itself show a bad mapping during the hang. Inside the
+VM a write to 0 would not fault at all; it would land in guest RAM at physical
+0. Its time relative to `qm start`/`qm stop` is not yet placed (runbook).
+
+What would send GPU writes to 0: a valid GGTT entry whose address is 0. The
+engine's hardware status page, which the GPU writes on context events, is the
+prime candidate. The sampler now also reads the status page's own GGTT entry,
+derived from `rcsHwsPga` (`hwsPteLo/Hi` at `0x800000 + (HWS >> 12) * 8`), and
+GGTT entry 0 (`ggttPte0Lo/Hi`); the decoder prints both and flags a valid PTE
+with physical address 0.
+
+Ruled out on the way, statically: Apple's stolen-memory pool. In standalone
+mode `registerWithFramebufferController` never fills `_stolenMemInfo`
+(`+0x13d0`; the framebuffer controller normally does, via
+`FBCLASSRegisterAccelerator`). The pool is then built with zero ranges:
+`prepareDescriptorList` creates no descriptor, `IGStolenMemoryPool::init`
+still returns true, and `allocate` returns NULL without a range allocator.
+Nothing calls `IGStolenMemoryPool::allocate` directly. So stolen memory hands
+out no address-0 objects. (`IntelSharedMemInfo` at `+0x13c0` gets only
+`0x18000000` in its second dword; its meaning is open.)
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.

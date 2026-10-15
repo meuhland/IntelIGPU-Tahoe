@@ -29,6 +29,8 @@ DEFAULT_NAMES = [
     "rcsIpeir", "rcsInstdone", "rcsDmaFadd",
     "rcsBbaddr", "rcsExecStatusHi", "rcsCtxCtl",
     "faultTlb0", "faultTlb1",
+    "hwsPteLo", "hwsPteHi",
+    "ggttPte0Lo", "ggttPte0Hi",
     "transconfA", "surfLiveA",
     "fbPteLo", "fbPteHi",
 ]
@@ -141,8 +143,13 @@ def mimode(v):
     return ",".join(flags) or "running"
 
 
-def pte(sample):
-    return sample["fbPteHi"] << 32 | sample["fbPteLo"]
+def pte(sample, prefix="fbPte"):
+    return sample[prefix + "Hi"] << 32 | sample[prefix + "Lo"]
+
+
+def pte_address(sample, prefix):
+    """Physical address of a Gen12 64-bit GGTT PTE (bits 38:12; bit 0 = valid)."""
+    return pte(sample, prefix) & 0x7FFFFFF000
 
 
 def csb(v):
@@ -167,7 +174,9 @@ def describe(name, value):
         return f"0x{value:08x} (read={read} write={write}" + (f", {unread} unread)" if unread is not None else ", reset)")
     if name == "rcsMiMode":
         return f"0x{value:08x} ({mimode(value)})"
-    if name == "fbPteLo":
+    if name.endswith("PteLo"):
+        if value == 0xFFFFFFFF and name == "hwsPteLo":
+            return "0xffffffff (outside the mapped BAR)"
         return f"0x{value:08x} ({'valid' if value & 1 else 'NOT valid'}, address bits 0x{value & 0xFFFFF000:08x})"
     if name == "gfxMstrIrq":
         bits = [n for b, n in ((MSTR_GT_DW0, "GT DW0"), (MSTR_GT_DW1, "GT DW1"), (MSTR_DISPLAY, "display"))
@@ -263,6 +272,16 @@ def summary(samples):
     if samples[0][2]["fwAckGT"] & HOLD_BIT and not s["fwAckGT"] & HOLD_BIT:
         out.append("  The hold probe's forcewake bit 2 was cleared while it was loaded (something reset all "
                    "forcewake requests); the GT then stays awake only on other requesters.")
+    if all(k in s for k in ("rcsHwsPga", "hwsPteLo", "hwsPteHi")) and s["hwsPteLo"] != 0xFFFFFFFF:
+        valid = s["hwsPteLo"] & 1
+        addr = pte_address(s, "hwsPte")
+        out.append(f"  RCS status page: GGTT 0x{s['rcsHwsPga'] & 0xFFFFF000:08x} -> PTE "
+                   f"0x{pte(s, 'hwsPte'):016x} ({'valid' if valid else 'NOT valid'}, physical 0x{addr:x})"
+                   + (": the GPU's status-page writes go to physical 0 (cf. a host DMAR write at 0x0)."
+                      if valid and addr == 0 else "."))
+    if all(k in s for k in ("ggttPte0Lo", "ggttPte0Hi")):
+        out.append(f"  GGTT entry 0: 0x{pte(s, 'ggttPte0'):016x} "
+                   f"({'valid' if s['ggttPte0Lo'] & 1 else 'NOT valid'}, physical 0x{pte_address(s, 'ggttPte0'):x}).")
     start = samples[0][2]
     missing = truncated(samples)
     if missing:

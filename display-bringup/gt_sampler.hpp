@@ -18,7 +18,10 @@
 // Offsets: i915 intel_gt_regs.h, intel_engine_regs.h (RENDER 0x2000,
 // BLT 0x22000), gt/uc/intel_guc_reg.h; display ones as in hdmi_scanout.hpp.
 namespace ReimsGTSampler {
-struct Reg {uint32_t offset;const char*name;};
+// derive: 0 = read offset; 1/2 = low/high dword of the GGTT PTE that the
+// already-sampled RCS status-page address (rcsHwsPga) points at.
+struct Reg {uint32_t offset;const char*name;uint8_t derive=0;};
+constexpr uint32_t ggttBase=0x800000;  // BAR0 upper half, as hdmi_scanout.hpp
 constexpr Reg regs[]={
  {0x130044,"fwAckGT"},{0x000d84,"fwAckRender"},
  {0x00c000,"gucStatus"},{0x00c180,"gucScratch0"},{0x00c314,"gucDmaCtrl"},
@@ -41,6 +44,11 @@ constexpr Reg regs[]={
  {0x002064,"rcsIpeir"},{0x00206c,"rcsInstdone"},{0x002078,"rcsDmaFadd"},
  {0x002140,"rcsBbaddr"},{0x002238,"rcsExecStatusHi"},{0x002244,"rcsCtxCtl"},
  {0x00ceb8,"faultTlb0"},{0x00cebc,"faultTlb1"},
+ // Where the GPU writes (2026-10-15: host DMAR logged a GPU DMA write to
+ // address 0x0). The status page's GGTT PTE (derived from rcsHwsPga above)
+ // and GGTT entry 0; a valid PTE with address 0 sends writes to physical 0.
+ {0,"hwsPteLo",1},{0,"hwsPteHi",2},
+ {ggttBase,"ggttPte0Lo"},{ggttBase+4,"ggttPte0Hi"},
  {0x070008,"transconfA"},{0x0701ac,"surfLiveA"},
  // GGTT PTE of the bring-up's first framebuffer page (GGTT 0x01000000):
  // ggttBase 0x800000 + (0x01000000 >> 12) * 8, as hdmi_scanout.hpp writes it.
@@ -48,7 +56,27 @@ constexpr Reg regs[]={
  {0x808000,"fbPteLo"},{0x808004,"fbPteHi"},
 };
 constexpr unsigned count=sizeof(regs)/sizeof(regs[0]);
-constexpr uint32_t maxOffset(){uint32_t m=0;for(const auto&r:regs)if(r.offset>m)m=r.offset;return m;}
+constexpr uint32_t maxOffset(){uint32_t m=0;for(const auto&r:regs)if(!r.derive&&r.offset>m)m=r.offset;return m;}
+constexpr int indexOf(const char*name){
+ for(unsigned i=0;i<count;++i){
+  const char*a=regs[i].name;const char*b=name;
+  while(*a&&*a==*b){++a;++b;}
+  if(*a==*b)return int(i);
+ }
+ return -1;
+}
+constexpr int hwsIndex=indexOf("rcsHwsPga");
+// Derived reads that would fall outside the mapped BAR read as this marker.
+constexpr uint32_t outsideBar=0xffffffffu;
+
+// Read column i. Plain columns read their offset; derived ones use the
+// rcsHwsPga value already read into soFar (it precedes them in regs[]).
+template<class Read> inline uint32_t readColumn(unsigned i,const uint32_t*soFar,uint64_t mapLength,Read&&read){
+ const Reg&r=regs[i];
+ if(!r.derive)return read(r.offset);
+ const uint64_t off=uint64_t(ggttBase)+uint64_t(soFar[hwsIndex]>>12)*8+(r.derive==2?4:0);
+ return off+4<=mapLength?read(uint32_t(off)):outsideBar;
+}
 
 struct Sample {uint32_t v[count]={};};
 // Kext line buffer for format()/header(); the test checks the worst case fits.

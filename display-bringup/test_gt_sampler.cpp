@@ -10,9 +10,26 @@ static int failures;
 int main(){
  // Register list: unique, dword aligned, inside the 16 MiB BAR0.
  for(unsigned i=0;i<count;++i){
+  if(regs[i].derive)continue;
   CHECK(!(regs[i].offset&3)&&regs[i].offset<0x1000000);
-  for(unsigned j=i+1;j<count;++j)CHECK(regs[i].offset!=regs[j].offset);
+  for(unsigned j=i+1;j<count;++j)CHECK(regs[j].derive||regs[i].offset!=regs[j].offset);
  }
+ // Derived status-page PTE: after rcsHwsPga, reads ggttBase + (hws>>12)*8 (+4),
+ // and returns the marker when that is past the mapped BAR.
+ {static_assert(hwsIndex>=0,"rcsHwsPga sampled");
+  const int lo=indexOf("hwsPteLo"),hi=indexOf("hwsPteHi");
+  CHECK(lo>hwsIndex&&hi==lo+1&&regs[lo].derive==1&&regs[hi].derive==2);
+  uint32_t soFar[count]={};soFar[hwsIndex]=0x00123000;  // GGTT page 0x123
+  uint32_t asked=0;auto read=[&](uint32_t o){asked=o;return 0x5a5a0001u;};
+  CHECK(readColumn(unsigned(lo),soFar,0x1000000,read)==0x5a5a0001u&&asked==0x800000+0x123*8);
+  CHECK(readColumn(unsigned(hi),soFar,0x1000000,read)==0x5a5a0001u&&asked==0x800000+0x123*8+4);
+  // A 16 MiB BAR's GGTT half covers the whole 4 GiB GGTT, so only a shorter
+  // mapping can leave the PTE outside it.
+  soFar[hwsIndex]=0xfffff000;
+  CHECK(readColumn(unsigned(lo),soFar,0x1000000,read)==0x5a5a0001u&&asked==0xfffff8);
+  asked=0;CHECK(readColumn(unsigned(lo),soFar,0x900000,read)==outsideBar&&asked==0);
+  const int p0=indexOf("ggttPte0Lo");CHECK(p0>0&&regs[p0].offset==ggttBase&&!regs[p0].derive);
+  CHECK(indexOf("noSuchRegister")==-1);}
  static_assert(maxOffset()==0x808004,"framebuffer PTE high dword is the highest offset");
  static_assert(regs[count-2].offset==0x800000+(0x01000000>>12)*8,"PTE of GGTT 0x01000000");
 

@@ -61,6 +61,7 @@ struct BarIO {
 #if defined(REIMS_GT_FORCEWAKE_HOLD)
 struct GTWatch {
  IOVirtualAddress base;
+ uint64_t length;  // mapped BAR0 bytes (bounds the derived GGTT PTE reads)
  ReimsGTWatch::Shared shared;
  bool stop;
  uint32_t exited;
@@ -79,7 +80,7 @@ static void watchSampler(void*arg,wait_result_t){
   auto&b=w->shared.buf[next&1];
   for(unsigned i=0;i<ReimsGTSampler::count;++i){
    __atomic_store_n(&w->shared.reading,int32_t(i),__ATOMIC_RELEASE);
-   b.v[i]=io.read(ReimsGTSampler::regs[i].offset);
+   b.v[i]=ReimsGTSampler::readColumn(i,b.v,w->length,[&](uint32_t o){return io.read(o);});
   }
   __atomic_store_n(&w->shared.reading,-1,__ATOMIC_RELEASE);
   __atomic_store_n(&w->shared.seq,next,__ATOMIC_RELEASE);
@@ -121,6 +122,7 @@ class ReimsGTResetProbe:public IOService {
   if(!watch){setProperty("ReimsGTWatch",false);return;}
   bzero(watch,sizeof(*watch));
   watch->base=map->getVirtualAddress();
+  watch->length=map->getLength();
   watch->shared.reading=-1;
   thread_t sampler=nullptr,reporter=nullptr;
   if(kernel_thread_start(watchSampler,watch,&sampler)!=KERN_SUCCESS){

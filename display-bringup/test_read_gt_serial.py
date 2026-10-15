@@ -27,7 +27,7 @@ RCS_ON = dict(rcsCtl=0x7001)  # valid, 8 pages (32 KiB, the profile's RingSizeKB
 class Decoder(unittest.TestCase):
     def test_columns_match_the_kext(self):
         source = (BASE / "gt_sampler.hpp").read_text()
-        self.assertEqual(re.findall(r'\{0x[0-9a-f]+,"(\w+)"\}', source), R.DEFAULT_NAMES)
+        self.assertEqual(re.findall(r'\{[^{},]+,"(\w+)"(?:,\d)?\}', source), R.DEFAULT_NAMES)
 
     def test_parse_skips_noise_and_bad_lines(self):
         text = "\n".join([
@@ -244,6 +244,18 @@ class Decoder(unittest.TestCase):
         summary = "\n".join(R.summary(R.parse("\n".join(
             line(i * 20, i * 5000, **st) for i, st in enumerate(states)))[1]))
         self.assertIn("forcewake bit 2 was cleared", summary)
+
+    def test_status_page_pte(self):
+        to_zero = dict(LIT, **AWAKE, rcsHwsPga=0x00123000, hwsPteLo=0x00000003, hwsPteHi=0,
+                       ggttPte0Lo=0x12345001, ggttPte0Hi=0)
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **to_zero), line(1, 250, **to_zero)]))[1]))
+        self.assertIn("RCS status page: GGTT 0x00123000 -> PTE 0x0000000000000003 (valid, physical 0x0)", out)
+        self.assertIn("go to physical 0", out)
+        self.assertIn("GGTT entry 0: 0x0000000012345001 (valid, physical 0x12345000)", out)
+        ok = dict(to_zero, hwsPteLo=0x7A001003, hwsPteHi=0x1)
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **ok), line(1, 250, **ok)]))[1]))
+        self.assertIn("physical 0x17a001000).", out)
+        self.assertIn("outside the mapped BAR", R.describe("hwsPteLo", 0xFFFFFFFF))
 
     def test_empty_log(self):
         self.assertIn("No ReimsGT samples", R.summary([])[0])
