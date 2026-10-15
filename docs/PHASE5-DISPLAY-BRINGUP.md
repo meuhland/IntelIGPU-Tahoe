@@ -362,6 +362,28 @@ New dry-run (`036B7152`) and execute (`EDB09CF6`, GT sampler) builds.
 
 Readouts: `~/work/igpu-notes/window-20261015-stage3-{dryrun,execute,dryrun-after-unload}.txt`.
 
+### 4K60 on the guest (2026-10-15)
+
+`REIMS_BRINGUP_UHD60=1` builds run `kUhd60` (594 MHz, HDMI 2.0 SCDC). The
+first three execute runs exposed three bugs in our GMBUS/SCDC code, each
+reproduced in the host model before fixing:
+
+1. `INUSE` gate: we refused a GMBUS transfer while GMBUS2 bit 15 was set;
+   i915 never reads it and it stays set once read, so every transfer after
+   the first was refused. Now gated on `GMBUS_ACTIVE`.
+2. No idle wait after STOP: SCDC `finish()` deselected the pin while the bus
+   was still `ACTIVE`, so the write after the read was refused. Now waits up
+   to 10 ms like i915 `gmbus_wait_idle`.
+3. Scrambling status checked too early: we required SCRAMBLER_STATUS before
+   enabling the DDI buffer. i915 writes SCDC (non-fatal), enables the buffer,
+   then polls the status for up to 200 ms (non-fatal). Now the same.
+
+Fourth run (`0BC5673E`): `OK`; `TRANS_DDI_FUNC_CTL` `0xa0030011`, DPLL0
+`CFGCR1` `0x448`, linetime `0x3c`; SCDC written, DDI buffer on, sink reports
+scrambling; decoder reads back 594000 kHz; `PLANE_SURFLIVE` `0x02a80000`, no
+underrun; EDID `OK`. The monitor showed the test pattern at 4K@60. Readout:
+`~/work/igpu-notes/window-20261015-stage3-60-execute-4.txt`.
+
 ## Stage 4: handoff to upstream
 
 Once the port lights the output, upstream's flow applies: the native

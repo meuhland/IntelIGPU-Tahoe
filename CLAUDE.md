@@ -286,9 +286,15 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   status up to 200 ms (`intel_hdmi_poll_for_scrambling_enable`, non-fatal,
   logged as `ScdcSetup [1]`). The test model only reports scrambling after
   the buffer is enabled and reproduced the abort first.
-- SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
-  `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
-  4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.
+- Done (4K60 on hardware, 2026-10-15, fourth run): `REIMS_BRINGUP_UHD60=1`
+  execute build `0BC5673E`: `OK`, SCDC written, DDI buffer on, sink confirmed
+  scrambling (`ScdcSetup [1]` check), decoder reads back 594000 kHz,
+  `PLANE_SURFLIVE` `0x02a80000`, no underrun, EDID `OK`; the monitor shows
+  the test pattern at 4K@60. The three earlier 4K60 runs failed on our own
+  GMBUS/SCDC bugs (bullet above). Readout
+  `~/work/igpu-notes/window-20261015-stage3-60-execute-4.txt`.
+  `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and `kUhd60` sets the DDI
+  scrambling bits; stage 3 is 4K30 by default.
 
 ## Working rules
 
