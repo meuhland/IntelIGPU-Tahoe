@@ -712,6 +712,14 @@ Next, cheapest first:
    `grep -n -i "forcewake\|retrigger\|pre-si\|simulation" ~/work/igpu-notes/window-20261014-serial-hwcaps.txt`.
    `Retrigger`/`failed` lines → acks failed; nothing → forcewake was skipped or
    never needed an ack (refcount), so the GT stayed asleep silently.
+   **Result 2026-10-15:** only `Detecting Pre-Si/Si Mode ... [Si]` and
+   `MultiForceWake Enabled: Using 3D Driver` (both starts in the log); no
+   `Retrigger`/`failed`. `SafeForceWakeMultithreaded` writes `0xa278`/`0xa188`
+   unconditionally outside simulator mode and logs only when the ack poll
+   (3000 × `IOPause(100)`) misses, so either the acks arrived — GT awake by
+   its own report, fuses still 0, which the host never shows — or Apple's
+   per-domain refcount was already above 0 and the hardware was never written.
+   Step 3 separates the two.
 2. **Host, Apple's requester bit:** `coldgt_check.py flr forcewake --wake
    --fw-bit 1` — confirms bit 1 wakes this GT after the reset QEMU applies.
 3. **Guest, `gt-reset-probe` before `igpu-start`:** its forcewake (bit 0)
