@@ -27,6 +27,10 @@ namespace R {
 constexpr uint32_t sliceEnable=0x9138,dssEnable=0x913c,euDisable=0x9134,mediaDisable=0x9140;
 constexpr uint32_t gdrst=0x941c,grdomFull=1u<<0,grdomRender=1u<<1;
 constexpr uint32_t fwRenderReq=0xa278,fwRenderAck=0xd84,fwGtReq=0xa188,fwGtAck=0x130044,fwKernel=1u<<0;
+// Hold mode's requester bit: i915 uses bit 0 (FORCEWAKE_KERNEL), Apple's
+// SafeForceWakeMultithreaded and i915's FORCEWAKE_USER use bit 1. A domain
+// stays awake while any requester bit is set, so bit 2 coexists with both.
+constexpr uint32_t fwHold=1u<<2;
 constexpr uint32_t maxOffset=0x130044;
 }
 
@@ -43,13 +47,13 @@ struct Result {
 };
 
 // masked write: (mask<<16)|value, the Gen9+ forcewake convention.
-template<class IO> inline bool acquireForcewake(IO&io,uint32_t req,uint32_t ack){
- io.write(req,(R::fwKernel<<16)|R::fwKernel);
- for(int i=0;i<100;++i){if(io.read(ack)&R::fwKernel)return true;io.delayUS(10);}
+template<class IO> inline bool acquireForcewake(IO&io,uint32_t req,uint32_t ack,uint32_t bit=R::fwKernel){
+ io.write(req,(bit<<16)|bit);
+ for(int i=0;i<100;++i){if(io.read(ack)&bit)return true;io.delayUS(10);}
  return false;
 }
-template<class IO> inline void releaseForcewake(IO&io,uint32_t req){
- io.write(req,(R::fwKernel<<16)|0);
+template<class IO> inline void releaseForcewake(IO&io,uint32_t req,uint32_t bit=R::fwKernel){
+ io.write(req,(bit<<16)|0);
 }
 template<class IO> inline Fuses readFuses(IO&io){
  return {io.read(R::sliceEnable),io.read(R::dssEnable),io.read(R::euDisable),io.read(R::mediaDisable)};
@@ -84,6 +88,31 @@ template<class IO> inline Result run(IO&io,bool execute){
  releaseForcewake(io,R::fwGtReq);
  return r;
 }
+
+// Hold mode (2026-10-15 diagnosis). Without an AppleIntelFramebufferController
+// Apple runs standalone, and its local _SafeForceWake callback is an empty
+// stub; getGPUInfo runs in configureDevice before the MultiForceWake hardware
+// path is selected, so its forcewake bracket does nothing and it reads the GT
+// asleep (all fuses 0, as the host reads right after QEMU's FLR). Holding our
+// own requester bit keeps render+GT awake through Apple's start. No reset.
+struct Hold {
+ Fuses raw;                 // before the hold
+ Fuses held;                // render+GT held with fwHold
+ bool renderAcked=false,gtAcked=false;
+};
+template<class IO> inline Hold acquireHold(IO&io){
+ Hold h;
+ h.raw=readFuses(io);
+ h.renderAcked=acquireForcewake(io,R::fwRenderReq,R::fwRenderAck,R::fwHold);
+ h.gtAcked=acquireForcewake(io,R::fwGtReq,R::fwGtAck,R::fwHold);
+ h.held=readFuses(io);
+ return h;
+}
+template<class IO> inline void releaseHold(IO&io){
+ releaseForcewake(io,R::fwRenderReq,R::fwHold);
+ releaseForcewake(io,R::fwGtReq,R::fwHold);
+}
+inline bool populated(const Fuses&f){return (f.slice&0x1)&&f.dss;}
 
 // Did the reset populate the geometry fuses? i915 expects slice-enable 0x1 and
 // a nonzero DSS mask; "populated" = either became nonzero after the reset.

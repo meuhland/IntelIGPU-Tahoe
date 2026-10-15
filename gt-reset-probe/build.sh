@@ -1,7 +1,8 @@
 #!/bin/bash
 # Phase-6 GT-reset probe. Default = read-only (reads geometry fuses, plans the
 # reset). REIMS_GT_RESET_EXECUTE=1 also issues GEN6_GDRST and re-reads — run
-# only from a VM snapshot. Not installed: load on demand with
+# only from a VM snapshot. REIMS_GT_FORCEWAKE_HOLD=1 instead holds render+GT
+# forcewake (requester bit 2) until unload, no reset. Not installed: load on demand with
 #   sudo kmutil load -p gt-reset-probe/build/ReimsGTResetProbe.kext
 # and remove with sudo kmutil unload -b lab.reims.ReimsGTResetProbe.
 set -euo pipefail
@@ -10,6 +11,7 @@ source ../scripts/target-flags.sh
 flags=()
 mode="read-only"
 if [ "${REIMS_GT_RESET_EXECUTE:-}" = 1 ]; then flags+=(-DREIMS_GT_RESET_EXECUTE=1); mode="EXECUTE (issues GDRST)"; fi
+if [ "${REIMS_GT_FORCEWAKE_HOLD:-}" = 1 ]; then flags+=(-DREIMS_GT_FORCEWAKE_HOLD=1); mode="HOLD (keeps render+GT forcewake until unload)"; fi
 sdk=$(xcrun --sdk macosx --show-sdk-path)
 headers="$sdk/System/Library/Frameworks/Kernel.framework/Headers"
 out=build/ReimsGTResetProbe.kext/Contents

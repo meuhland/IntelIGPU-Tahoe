@@ -12,11 +12,40 @@ re-prepared TGL candidate, rpls gate/DesktopLink/VideoDiscovery, both stage-3
 bring-up builds, the Metal bundle, `-allow3d` in the boot args, then a VM
 snapshot.
 
-Run the host-side cold-GT experiment first
-([PORT-RPLS-UHD770.md](PORT-RPLS-UHD770.md), "Host-side cold-GT experiment").
-It needs no VM boot. If it names a host knob (`disable_idle_d3=1`, or
-disabling reset via `reset_method`), set that knob before this window. Then
-the guest should read the real geometry fuses (1/3) instead of zero.
+The host-side cold-GT experiment is done (2026-10-15): no host knob is
+needed. The likely cause is Apple's standalone forcewake being a stub when
+`getGPUInfo` runs ([PORT-RPLS-UHD770.md](PORT-RPLS-UHD770.md), "Likely root
+cause"). Also build the forcewake-hold probe:
+
+```sh
+REIMS_TARGET=rpls REIMS_GT_FORCEWAKE_HOLD=1 bash gt-reset-probe/build.sh
+ditto gt-reset-probe/build/ReimsGTResetProbe.kext ~/work/bringup/gt-hold/ReimsGTResetProbe.kext
+```
+
+It prints `built ReimsGTResetProbe.kext (HOLD …)`. It is a new binary: load it
+once before the window (iGPU still on the host, it refuses without the
+target and changes nothing) so any approval/reboot is out of the way.
+
+### Next window: forcewake hold, then `igpu-start`
+
+After step 1 below (VM booted, IGD isolated), before stage 3 and `igpu-start`:
+
+```sh
+sudo rm -rf /private/tmp/ReimsGTResetProbe.kext
+sudo ditto ~/work/bringup/gt-hold/ReimsGTResetProbe.kext /private/tmp/ReimsGTResetProbe.kext
+sudo chown -R root:wheel /private/tmp/ReimsGTResetProbe.kext
+sudo kmutil load -p /private/tmp/ReimsGTResetProbe.kext
+python3 gt-reset-probe/read_gt_reset.py
+```
+
+| Probe says | Meaning | Then |
+|---|---|---|
+| acks true, `Held` 1/3/`0xe00fa`, `held fuses populated: True` | the guest GT wakes; the stub was the problem | leave it **loaded**, continue with stage 3 and `igpu-start`; expect real `HWCAPS` (NumSlices 1, NumSubSlices 4, EU 32) and see whether `start` gets past the stamp wait |
+| acks true, `Held` zero | GT awake by its own report but no fuses: a VM-only state | stop; save the output; GOP route back on the table |
+| acks false | the GT cannot wake in the guest | stop; save the output |
+
+Do not unload the probe while the accelerator is running: unloading releases
+the hold.
 
 ## In the window
 

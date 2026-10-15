@@ -16,7 +16,8 @@ if not entries:
     sys.exit('ReimsGTResetProbe is not loaded')
 p = entries[0]
 
-for key in ('ReimsGTResetPath', 'ReimsGTResetExecuteBuild', 'PhysicalIdentityVerified',
+for key in ('ReimsGTResetPath', 'ReimsGTResetExecuteBuild', 'ReimsGTForcewakeHoldBuild',
+            'PhysicalIdentityVerified', 'ForcewakeHeld',
             'ReimsGTResetComplete', 'ReimsGTResetExecuted', 'ReimsGTResetError'):
     if key in p:
         print(f'{key}: {p[key]}')
@@ -35,6 +36,14 @@ def fuses(prefix):
 
 print('geometry fuses:')
 fuses('Raw')
+if p.get('ReimsGTForcewakeHoldBuild'):
+    fuses('Held')
+    print(f'forcewake acked: render={p.get("RenderForcewakeAcked")} gt={p.get("GTForcewakeAcked")}')
+    ok = p.get('HeldFusesPopulated')
+    print(f'held fuses populated: {ok}' + (
+        '  -> the GT wakes in the guest; leave this loaded and run igpu-start'
+        if ok else '  -> the GT does not give real fuses even awake: stop here'))
+    sys.exit(0)
 if p.get('ReimsGTResetExecuted'):
     fuses('Forcewake')
     fuses('AfterReset')

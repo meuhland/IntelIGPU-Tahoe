@@ -23,7 +23,8 @@ struct Model {
   writes.push_back(a);
   if((a==R::fwRenderReq||a==R::fwGtReq)){
    uint32_t ack=(a==R::fwRenderReq)?R::fwRenderAck:R::fwGtAck;
-   reg[ack]=(ackForcewake&&(v&R::fwKernel))?R::fwKernel:0u;
+   uint32_t mask=v>>16,val=v&0xffffu;  // masked write, per requester bit
+   reg[ack]=ackForcewake?((reg[ack]&~mask)|(val&mask)):0u;
   } else if(a==R::gdrst){
    reg[R::gdrst]=0; // self-clears immediately
    resetDone=true;
@@ -69,7 +70,24 @@ int main(){
   Stuck m; uint32_t loops=0; bool ok=gdrstReset(m,R::grdomFull,loops);
   CHECK(!ok && loops>=1);}
 
+ // Hold: asleep GT (fuses read 0 unless the GT domain is acked) wakes under
+ // requester bit 2, stays held, and coexists with Apple's bit 1 release.
+ {struct Asleep:Model{uint32_t read(uint32_t a){
+    if((a==R::sliceEnable||a==R::dssEnable||a==R::mediaDisable)&&!reg[R::fwGtAck])return 0;
+    return Model::read(a);}};
+  Asleep m;m.reg[R::sliceEnable]=1;m.reg[R::dssEnable]=3;m.reg[R::mediaDisable]=0xe00fa;
+  auto h=acquireHold(m);
+  CHECK(!populated(h.raw)&&h.raw.media==0);
+  CHECK(h.renderAcked&&h.gtAcked&&populated(h.held)&&h.held.media==0xe00fa);
+  CHECK(m.reg[R::fwGtAck]==R::fwHold);
+  m.write(R::fwGtReq,(2u<<16)|2u); m.write(R::fwGtReq,(2u<<16)|0u); // Apple bit 1 on/off
+  CHECK(populated(readFuses(m)));                                    // still held
+  bool gd=false; for(auto a:m.writes) if(a==R::gdrst) gd=true;
+  CHECK(!gd);                                                        // hold never resets
+  releaseHold(m);
+  CHECK(m.reg[R::fwGtAck]==0&&!populated(readFuses(m)));}
+
  if(failures) return 1;
- puts("PASS: GT reset probe (dry run, reset populates / not, forcewake/GDRST timeouts)");
+ puts("PASS: GT reset probe (dry run, reset populates / not, forcewake/GDRST timeouts, hold)");
  return 0;
 }

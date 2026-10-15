@@ -725,6 +725,42 @@ Next, cheapest first:
    **Result 2026-10-15:** with `--fw-bit 1`, post-FLR raw read all zero,
    then render and GT both ack and the forcewake read is 1/3/`0xe00fa`.
    Apple's requester bit wakes this GT fine after QEMU's reset, on the host.
+##### Likely root cause (static, 2026-10-15): standalone forcewake is a stub
+
+Following the call chain in the `sle` binary explains the silent all-zero read:
+
+- `getGPUInfo` is called from `IntelAccelerator::configureDevice` (`0x2844a`),
+  which `start` reaches through vtable slot `0x5d0` at `0x240d8` — before
+  `start` evaluates fFlags bit 11 and logs `MultiForceWake Enabled` at
+  `0x242e3`. Inside `getGPUInfo`, `SafeForceWake` without the refcounted path
+  tail-calls `this->0xde8->+8`.
+- When `registerWithFramebufferController` finds no
+  `AppleIntelFramebufferController` ("Could not register with IOFB! Working
+  standalone (IONDRVSupport)"), `initLocalCallbackSupport` (`0x2a87a`) fills
+  `0xde8` with local callbacks, and the forcewake one, `_SafeForceWake`
+  (`0x2d2a0`), is an empty function: `push rbp; pop rbp; ret`. This port has
+  no `AppleIntelFramebufferController`, so Apple runs standalone.
+- So the `getGPUInfo` bracket does nothing, the GT is still asleep from QEMU's
+  reset (the host shows the post-FLR read is all zero until forcewake), and
+  `getGPUInfo` reads 0/0/0/0 with nothing logged. On ADL-P bare metal the
+  firmware leaves the GT awake, which is why the same code works there.
+
+Confirm from the saved log (no downtime): the `HWCAPS` lines should come before
+the `MultiForceWake Enabled` line, and a `Could not register with IOFB` line
+should be present:
+`grep -n "HWCAPS - NumSlices\|MultiForceWake\|Could not register\|Pre-Si" ~/work/igpu-notes/window-20261014-serial-hwcaps.txt`.
+
+**Fix to test: hold forcewake ourselves.** `gt-reset-probe` has a hold build
+(`REIMS_GT_FORCEWAKE_HOLD=1`): it acquires render + GT forcewake with
+requester bit 2 (i915 uses bit 0, Apple bit 1; a domain stays awake while any
+bit is set), reads the fuses under the hold, and keeps it until unload — no
+reset. Loaded before `igpu-start`, the GT is awake when `getGPUInfo` reads, so
+it should see the real topology (1 slice, 4 subslices in Apple's counting, 32 EU) and the topology injection becomes a no-op
+safety net. Apple's later forcewake goes through the MultiForceWake hardware
+path, so this is likely only needed for start. A permanent fix would fold the
+hold into the gate or DesktopLink (or patch `SafeForceWake` to take the
+hardware path), once the hold build proves it on hardware.
+
 3. **Guest, `gt-reset-probe` before `igpu-start`:** its forcewake (bit 0)
    read. 1/3 in the guest → the VM can wake the GT and the difference is
    Apple's path; 0 even with acks → the GT cannot wake in the guest.

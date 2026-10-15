@@ -13,10 +13,24 @@
 // GEN6_GDRST (writes 0x941c), and re-reads, to test whether resetting the
 // cold GT populates the fuses. Run the execute build only from a VM snapshot;
 // recover with stop-VM (hookscript rebinds i915) or a host reboot.
+//
+// The hold build (REIMS_GT_FORCEWAKE_HOLD) does no reset: it acquires
+// render+GT forcewake with its own requester bit and keeps it until unload, so
+// the GT stays awake through Apple's start (whose standalone forcewake is a
+// no-op when getGPUInfo reads the fuses; see gt_reset.hpp). Load it before
+// igpu-start and leave it loaded.
 #if defined(REIMS_GT_RESET_EXECUTE)
 static constexpr bool kExecute=true;
 #else
 static constexpr bool kExecute=false;
+#endif
+#if defined(REIMS_GT_FORCEWAKE_HOLD)
+static constexpr bool kHold=true;
+#if defined(REIMS_GT_RESET_EXECUTE)
+#error "REIMS_GT_FORCEWAKE_HOLD and REIMS_GT_RESET_EXECUTE are separate builds"
+#endif
+#else
+static constexpr bool kHold=false;
 #endif
 
 struct BarIO {
@@ -28,6 +42,7 @@ struct BarIO {
 
 class ReimsGTResetProbe:public IOService {
  OSDeclareDefaultStructors(ReimsGTResetProbe)
+ IOMemoryMap*heldMap=nullptr;  // hold build: BAR0 stays mapped while forcewake is held
  void number(const char*k,uint64_t v,unsigned bits=32){
   if(auto*n=OSNumber::withNumber(v,bits)){setProperty(k,n);n->release();}
  }
@@ -60,6 +75,17 @@ class ReimsGTResetProbe:public IOService {
    OSSafeReleaseNULL(map);setProperty("ReimsGTResetError","BAR0 map failed");return false;
   }
   BarIO io{map->getVirtualAddress()};
+  if(kHold){
+   const auto h=ReimsGTReset::acquireHold(io);
+   heldMap=map;
+   publishFuses("Raw",h.raw);
+   publishFuses("Held",h.held);
+   setProperty("RenderForcewakeAcked",h.renderAcked);
+   setProperty("GTForcewakeAcked",h.gtAcked);
+   setProperty("ForcewakeHeld",true);
+   setProperty("HeldFusesPopulated",ReimsGTReset::populated(h.held));
+   return true;
+  }
   const auto r=ReimsGTReset::run(io,kExecute);
   map->release();
 
@@ -80,10 +106,19 @@ public:
  bool start(IOService*provider)override{
   if(!IOService::start(provider))return false;
   setProperty("ReimsGTResetExecuteBuild",kExecute);
+  setProperty("ReimsGTForcewakeHoldBuild",kHold);
   setProperty("ReimsGTResetPath",ReimsTarget::kPCIPath);
   setProperty("ReimsGTResetComplete",probe());
   registerService();
   return true;
+ }
+ void stop(IOService*provider)override{
+  if(heldMap){
+   BarIO io{heldMap->getVirtualAddress()};
+   ReimsGTReset::releaseHold(io);
+   OSSafeReleaseNULL(heldMap);
+  }
+  IOService::stop(provider);
  }
 };
 OSDefineMetaClassAndStructors(ReimsGTResetProbe,IOService)
