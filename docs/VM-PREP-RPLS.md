@@ -135,17 +135,38 @@ qm set 113 -serial0 socket
 ```
 
 In the guest's OpenCore `boot-args`, add `serial=3` next to `-allow3d`
-(kernel console and `kprintf` to COM1). During the window, capture it on the
-host from a second shell, before starting the VM:
+(kernel console on COM1: `IOLog`/`printf` output, which is what Apple's
+`[IGPU]` lines and our watch use. `kprintf` additionally needs `debug=0x8`;
+not required). During the window, capture it on the host from a second shell.
+The socket only exists while QEMU runs (Proxmox creates it at VM start and
+removes it at stop), so a plain `socat` started before `qm start` fails at
+once and leaves an empty log, and one started earlier exits at the next VM
+stop. Use this loop instead; start it any time, it waits for the socket and
+reconnects across VM restarts (stop it with Ctrl-C):
 
 ```sh
-socat -u UNIX-CONNECT:/var/run/qemu-server/113.serial0 STDOUT | tee /root/vm113-serial-$(date +%Y%m%d-%H%M%S).log
+log=/root/vm113-serial-$(date +%Y%m%d-%H%M%S).log; sock=/var/run/qemu-server/113.serial0
+while :; do [ -S "$sock" ] && socat -u UNIX-CONNECT:"$sock" STDOUT; sleep 1; done | tee -a "$log"
 ```
 
 The socket takes **one reader**. If `qm terminal 113` or the Proxmox web
-console is attached, `socat` reads nothing and the log stays empty (this
-happened on 2026-10-14). Use `qm terminal 113` (exit with Ctrl-O) only when
-you are not capturing to a file.
+console (serial xterm.js) is attached, `socat` reads nothing and the log
+stays empty (this happened on 2026-10-14). Use `qm terminal 113` (exit with
+Ctrl-O) only when you are not capturing to a file.
+
+If the log is still empty with the VM running:
+
+```sh
+ls -l /var/run/qemu-server/113.serial0     # socket exists (type s)?
+ss -xp | grep 113.serial0                  # who else is connected?
+qm config 113 | grep serial                # serial0: socket
+```
+
+and in the guest `nvram boot-args` must contain `serial=3`. End-to-end test:
+with the loop running, start (or reboot) the VM; kernel console lines from
+the macOS boot should appear in the log within seconds. If boot output shows
+but our `ReimsGT` lines do not, the problem is the kext (TEST-WINDOW "watch
+the hang"), not the capture.
 
 ## 10. Reboot and check (iGPU still on the host)
 
