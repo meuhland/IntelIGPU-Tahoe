@@ -34,6 +34,13 @@ constexpr Reg regs[]={
  {0x190010,"gfxMstrIrq"},{0x190018,"gtIntrDw0"},{0x19001c,"gtIntrDw1"},
  {0x190030,"rcsBcsIntrEn"},{0x0020a8,"rcsImr"},{0x0020b0,"rcsEir"},
  {0x0020b8,"rcsEsr"},{0x002080,"rcsHwsPga"},
+ // Error state of a stalled engine (2026-10-15 window: RCS RING_RESET_CTL
+ // showed CAT_ERROR and no context ever loaded). intel_engine_regs.h
+ // RING_IPEIR/INSTDONE/DMA_FADD/BBADDR/EXECLIST_STATUS_HI/CONTEXT_CONTROL;
+ // intel_gt_regs.h GEN12_FAULT_TLB_DATA0/1 (with GEN12_RING_FAULT_REG above).
+ {0x002064,"rcsIpeir"},{0x00206c,"rcsInstdone"},{0x002078,"rcsDmaFadd"},
+ {0x002140,"rcsBbaddr"},{0x002238,"rcsExecStatusHi"},{0x002244,"rcsCtxCtl"},
+ {0x00ceb8,"faultTlb0"},{0x00cebc,"faultTlb1"},
  {0x070008,"transconfA"},{0x0701ac,"surfLiveA"},
  // GGTT PTE of the bring-up's first framebuffer page (GGTT 0x01000000):
  // ggttBase 0x800000 + (0x01000000 >> 12) * 8, as hdmi_scanout.hpp writes it.
@@ -46,6 +53,14 @@ constexpr uint32_t maxOffset(){uint32_t m=0;for(const auto&r:regs)if(r.offset>m)
 struct Sample {uint32_t v[count]={};};
 // Kext line buffer for format()/header(); the test checks the worst case fits.
 constexpr size_t lineBuffer=512;
+// IOLog's console path keeps at most 255 characters of a line
+// (SERIAL_CONS_BUF_SIZE 256, xnu osfmk/console/serial_protos.h; the rest is
+// dropped unless drain_uart_sync=1), which cut every 2026-10-15 sample after
+// 26 columns. The kexts therefore print a sample as parts of partColumns
+// registers, "ReimsGT <seq> <ms> @<first> v...", each well under 255.
+constexpr unsigned partColumns=10;
+constexpr unsigned parts=(count+partColumns-1)/partColumns;
+constexpr size_t consoleLine=255;
 
 // Print policy: every sample that differs from the last printed one, plus a
 // heartbeat (an unchanged GT then reads as "frozen", not as "sampler dead"),
@@ -67,23 +82,34 @@ struct State {
 
 // "ReimsGT <seq> <ms> v0 v1 ...": fixed register order, 8 hex digits each.
 // The register names are printed once with header(). Returns the length.
-inline size_t format(char*out,size_t n,uint32_t seq,uint64_t ms,const Sample&s){
+// part >= 0 prints only columns [part*partColumns, +partColumns) behind an
+// "@<first column>" marker; part < 0 prints every column on one line.
+inline unsigned partFirst(int part){return part<0?0:unsigned(part)*partColumns;}
+inline unsigned partEnd(int part){
+ if(part<0)return count;
+ const unsigned e=partFirst(part)+partColumns;
+ return e<count?e:count;
+}
+inline size_t format(char*out,size_t n,uint32_t seq,uint64_t ms,const Sample&s,int part=-1){
  static const char hex[]="0123456789abcdef";
  size_t len=0;
  auto put=[&](char c){if(len+1<n)out[len]=c;++len;};
  auto dec=[&](uint64_t v){char d[20];unsigned k=0;do{d[k++]=char('0'+v%10);v/=10;}while(v);while(k)put(d[--k]);};
  for(const char*p="ReimsGT ";*p;++p)put(*p);
  dec(seq);put(' ');dec(ms);
- for(unsigned i=0;i<count;++i){put(' ');for(int b=28;b>=0;b-=4)put(hex[(s.v[i]>>b)&0xf]);}
+ if(part>=0){put(' ');put('@');dec(partFirst(part));}
+ for(unsigned i=partFirst(part);i<partEnd(part);++i){put(' ');for(int b=28;b>=0;b-=4)put(hex[(s.v[i]>>b)&0xf]);}
  put('\n');
  if(n)out[len<n?len:n-1]='\0';
  return len;
 }
-inline size_t header(char*out,size_t n){
+inline size_t header(char*out,size_t n,int part=-1){
  size_t len=0;
  auto put=[&](char c){if(len+1<n)out[len]=c;++len;};
+ auto dec=[&](uint64_t v){char d[20];unsigned k=0;do{d[k++]=char('0'+v%10);v/=10;}while(v);while(k)put(d[--k]);};
  for(const char*p="ReimsGT seq ms";*p;++p)put(*p);
- for(unsigned i=0;i<count;++i){put(' ');for(const char*p=regs[i].name;*p;++p)put(*p);}
+ if(part>=0){put(' ');put('@');dec(partFirst(part));}
+ for(unsigned i=partFirst(part);i<partEnd(part);++i){put(' ');for(const char*p=regs[i].name;*p;++p)put(*p);}
  put('\n');
  if(n)out[len<n?len:n-1]='\0';
  return len;

@@ -79,8 +79,10 @@ class ReimsDisplayBringup:public IOService {
   for(unsigned i=0;i<ReimsGTSampler::count;++i)sample.v[i]=io.read(ReimsGTSampler::regs[i].offset);
   if(self->samplerState.shouldPrint(sample,ReimsGTSampler::Policy{})){
    char line[ReimsGTSampler::lineBuffer];
-   ReimsGTSampler::format(line,sizeof(line),self->samplerSeq,(uptimeUS()-self->samplerStartUS)/1000,sample);
-   IOLog("%s",line);
+   const uint64_t ms=(uptimeUS()-self->samplerStartUS)/1000;
+   for(unsigned p=0;p<ReimsGTSampler::parts;++p){
+    ReimsGTSampler::format(line,sizeof(line),self->samplerSeq,ms,sample,int(p));IOLog("%s",line);
+   }
   }
   ++self->samplerSeq;timer->setTimeoutMS(250);
  }
@@ -91,7 +93,7 @@ class ReimsDisplayBringup:public IOService {
   if(!samplerTimer||samplerLoop->addEventSource(samplerTimer)!=kIOReturnSuccess){
    OSSafeReleaseNULL(samplerTimer);OSSafeReleaseNULL(samplerLoop);setProperty("ReimsGTSampler",false);return;
   }
-  char line[ReimsGTSampler::lineBuffer];ReimsGTSampler::header(line,sizeof(line));IOLog("%s",line);
+  char line[ReimsGTSampler::lineBuffer];for(unsigned p=0;p<ReimsGTSampler::parts;++p){ReimsGTSampler::header(line,sizeof(line),int(p));IOLog("%s",line);}
   samplerStartUS=uptimeUS();samplerTimer->setTimeoutMS(250);setProperty("ReimsGTSampler",true);
  }
  void disarmSampler(){

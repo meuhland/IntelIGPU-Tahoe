@@ -30,6 +30,26 @@ int main(){
  // Truncation stays NUL-terminated.
  char tiny[16];format(tiny,sizeof(tiny),1,2,s);CHECK(strlen(tiny)==15);
 
+ // Parts (what the kexts print): every part line, worst-case seq/ms, and every
+ // header part fit IOLog's 255-character console line, and together they
+ // cover each column exactly once, in order.
+ {unsigned covered=0;
+  for(unsigned p=0;p<parts;++p){
+   char w[lineBuffer];
+   CHECK(format(w,sizeof(w),0xffffffffu,~0ull,s,int(p))<consoleLine);
+   CHECK(header(w,sizeof(w),int(p))<consoleLine);
+   CHECK(partFirst(int(p))==covered);covered=partEnd(int(p));
+  }
+  CHECK(covered==count);
+  CHECK(format(line,sizeof(line),7,1234,s,0)<consoleLine);
+  CHECK(!strncmp(line,"ReimsGT 7 1234 @0 00010001 11111111 8000f0f4 ",45));
+  format(line,sizeof(line),7,1234,s,1);
+  CHECK(!strncmp(line,"ReimsGT 7 1234 @10 aaaaaaaa ",28));
+  header(head,sizeof(head),1);
+  CHECK(!strncmp(head,"ReimsGT seq ms @10 rcsIpehr ",28));
+  // The single-line form really does exceed it (why parts exist).
+  CHECK(format(line,sizeof(line),7,1234,s)>consoleLine);}
+
  // Print policy: first sample, changes, and a heartbeat every 20 ticks.
  State st;Policy p;Sample z;
  CHECK(st.shouldPrint(z,p));

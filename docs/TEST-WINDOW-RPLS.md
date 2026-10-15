@@ -71,12 +71,31 @@ The host MSI check worked: MSI enabled, `vfio-msi[0]` count 0 throughout. Fixed
 to print with `IOLog` (PORT doc "Why the watch printed nothing"); **rebuild
 the hold probe** (new binary: pre-load once) before rerunning this section.
 
+**Result 2026-10-15 late:** the IOLog watch printed, but every line was cut
+at 255 characters (the console's line buffer), losing the error columns. What
+survived answers the questions: `ACTHD` never moved, `GT_INTR_DW0` stayed 0,
+the master bit was set: **never executed**, and RCS flagged a catastrophic
+error (`RING_RESET_CTL` `CAT_ERROR`) the moment `start` submitted (PORT doc
+"GT watch on hardware: never executed"). The watch now prints each sample as
+`@<column>` parts of 10 registers and samples the error, fault and execlist
+registers too; **rebuild the hold probe again** (pre-load once).
+
+Next run of this section, additions:
+
+- Each sample now shows on serial as four `ReimsGT <seq> <ms> @0/@10/@20/@30 …`
+  lines (and the header as four `ReimsGT seq ms @… names` lines). None may
+  be cut: if a line ends mid-value, report it.
+- Host, during the hang: `dmesg -T | grep -iE 'dmar|iommu|vfio|00:02.0' | tail -40`.
+  DMA fault lines naming `00:02.0` with an address mean the first submission
+  made the GPU fetch memory the VM does not map, the leading explanation for
+  the catastrophic error. Save them with the capture.
+
 1. Host: serial capture running (VM-PREP-RPLS.md 9b; only one reader on the
    socket).
 2. Guest: load the hold probe, `read_gt_reset.py` (expect the first row
-   above and `ReimsGTWatch: True`). **Check the capture now**: a
-   `ReimsGT seq ms …` header and a first `ReimsGT 1 …` sample must appear
-   within a second of the load, before `igpu-start`. If they do not, stop:
+   above and `ReimsGTWatch: True`). **Check the capture now**: the
+   `ReimsGT seq ms @0 …` header parts and a first `ReimsGT 1 … @0 …` sample
+   must appear within a second of the load, before `igpu-start`. If they do not, stop:
    the watch output is still not reaching serial (then add `debug=0x8` to
    the boot args as a fallback, which enables `kprintf` too). Then
    `igpu-start`.

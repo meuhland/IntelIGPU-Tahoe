@@ -26,14 +26,22 @@ DEFAULT_NAMES = [
     "gfxMstrIrq", "gtIntrDw0", "gtIntrDw1",
     "rcsBcsIntrEn", "rcsImr", "rcsEir",
     "rcsEsr", "rcsHwsPga",
+    "rcsIpeir", "rcsInstdone", "rcsDmaFadd",
+    "rcsBbaddr", "rcsExecStatusHi", "rcsCtxCtl",
+    "faultTlb0", "faultTlb1",
     "transconfA", "surfLiveA",
     "fbPteLo", "fbPteHi",
 ]
 HEARTBEAT_MS = 5000  # Policy::heartbeatTicks x 250 ms
 TICK_MS = 250
 LINE_BUDGET = 4000  # Policy::maxLines
-HEADER = re.compile(r"ReimsGT seq ms((?: [A-Za-z0-9]+)+)\s*$")
-SAMPLE = re.compile(r"ReimsGT (\d+) (\d+)((?: [0-9a-f]{8})+)\s*$")
+# Kexts print each sample (and the header) as parts, "@<first column>"; older
+# captures have one line per sample. IOLog's console path cuts lines at 255
+# characters (xnu SERIAL_CONS_BUF_SIZE), so a one-line sample may end in a
+# partial token: keep the complete columns.
+HEADER = re.compile(r"ReimsGT seq ms(?: @(\d+))?((?: [A-Za-z0-9]+)+)\s*$")
+SAMPLE = re.compile(r"ReimsGT (\d+) (\d+)(?: @(\d+))?((?: [0-9a-f]{8})+)(?: [0-9a-f]{1,7})?\s*$")
+CONSOLE_LINE = 255
 # gt-reset-probe hold build (gt_watch.hpp): the sampler thread stopped advancing.
 STALL = re.compile(r"ReimsGT stall seq (\d+) ms (\d+) (?:reading (\w+) 0x([0-9a-f]+)|starved) for (\d+) ms")
 
@@ -43,6 +51,7 @@ STALL = re.compile(r"ReimsGT stall seq (\d+) ms (\d+) (?:reading (\w+) 0x([0-9a-
 # domain awake.
 FORCEWAKE_BIT = 1 << 1
 FORCEWAKE_REQUESTERS = 0xFFFF
+HOLD_BIT = 1 << 2  # gt-reset-probe hold build's requester
 # GEN11_GFX_MSTR_IRQ (i915_reg.h)
 MSTR_IRQ_ENABLE, MSTR_DISPLAY, MSTR_GT_DW0, MSTR_GT_DW1 = 1 << 31, 1 << 16, 1 << 0, 1 << 1
 GEN11_CSB_ENTRIES = 12
@@ -50,24 +59,58 @@ HEAD_ADDR, TAIL_ADDR, RING_VALID, RING_NR_PAGES = 0x001FFFFC, 0x001FFFF8, 0x1, 0
 
 
 def parse(text):
-    names, samples = list(DEFAULT_NAMES), []
+    """Return (names, samples); a sample is (seq, ms, {name: value}).
+
+    A sample may lack trailing columns when its line was cut at the console's
+    255-character limit (pre-parts captures); `truncated(samples)` reports it.
+    """
+    names, samples, pending = list(DEFAULT_NAMES), [], None  # pending: [seq, ms, {column: value}]
+
+    def flush():
+        if pending:
+            cols = pending[2]
+            samples.append((pending[0], pending[1], {names[c]: cols[c] for c in sorted(cols) if c < len(names)}))
+
     for raw in text.splitlines():
         at = raw.find("ReimsGT")
         if at < 0:
             continue
-        line = raw[at:]
+        line = raw[at:].rstrip()
         header = HEADER.match(line)
         if header:
-            names = header.group(1).split()
+            part = header.group(2).split()
+            if header.group(1) is None:
+                names = part
+            else:
+                first = int(header.group(1))
+                names = names[:first] + part + names[first + len(part):]
             continue
         sample = SAMPLE.match(line)
         if not sample:
             continue
-        values = [int(v, 16) for v in sample.group(3).split()]
-        if len(values) != len(names):
-            continue  # truncated or interleaved line
-        samples.append((int(sample.group(1)), int(sample.group(2)), dict(zip(names, values))))
+        seq, ms = int(sample.group(1)), int(sample.group(2))
+        values = [int(v, 16) for v in sample.group(4).split()]
+        if sample.group(3) is None:
+            # One-line sample: complete, or cut at the console line limit.
+            if len(values) > len(names) or (len(values) < len(names) and len(line) < CONSOLE_LINE):
+                continue  # interleaved or garbled, not a console truncation
+            flush()
+            pending = None
+            samples.append((seq, ms, dict(zip(names, values))))
+            continue
+        first = int(sample.group(3))
+        if pending is None or pending[0] != seq:
+            flush()
+            pending = [seq, ms, {}]
+        for i, v in enumerate(values):
+            pending[2][first + i] = v
+    flush()
     return names, samples
+
+
+def truncated(samples, names=DEFAULT_NAMES):
+    """Names missing from at least one sample (lost to line truncation)."""
+    return [n for n in names if any(n not in s for _, _, s in samples)]
 
 
 def guc(v):
@@ -141,7 +184,7 @@ def timeline(samples):
             out.append(f"{ms:>9} ms  #{seq}  first sample")
             out.extend(f"{'':14}{n} = {describe(n, v)}" for n, v in s.items())
         else:
-            changed = [n for n in s if s[n] != previous[n]]
+            changed = [n for n in s if n in previous and s[n] != previous[n]]
             out.append(f"{ms:>9} ms  #{seq}  " + (f"{len(changed)} changed" if changed else "heartbeat (no change)"))
             out.extend(f"{'':14}{n}: {describe(n, previous[n])} -> {describe(n, s[n])}" for n in changed)
         previous = s
@@ -207,18 +250,27 @@ def summary(samples):
         out.append(f"  GT interrupt pending and not serviced over the last {len(tail)} samples (GT_INTR_DW0 "
                    f"0x{s['gtIntrDw0']:08x}, DW1 0x{s['gtIntrDw1']:08x}; {describe('gfxMstrIrq', s['gfxMstrIrq'])}): "
                    "the GPU raised it, nothing handled it.")
-    if s["rcsEir"]:
-        out.append(f"  RCS error identity nonzero: EIR 0x{s['rcsEir']:08x}, ESR 0x{s['rcsEsr']:08x}.")
+    if s.get("rcsEir"):
+        out.append(f"  RCS error identity nonzero: EIR 0x{s['rcsEir']:08x}, ESR 0x{s.get('rcsEsr', 0):08x}.")
     if s["rcsReset"] & 0b101:
         out.append("  RCS reset requested or catastrophic error flagged.")
     if s["errorGen6"] or s["ringFault"]:
         out.append(f"  GT error registers nonzero: ERROR_GEN6 0x{s['errorGen6']:08x}, RING_FAULT 0x{s['ringFault']:08x}.")
+    if s.get("faultTlb0") or s.get("faultTlb1"):
+        out.append(f"  GT fault TLB data: 0x{s.get('faultTlb1', 0):08x}_{s.get('faultTlb0', 0):08x}.")
+    if samples[0][2]["fwAckGT"] & HOLD_BIT and not s["fwAckGT"] & HOLD_BIT:
+        out.append("  The hold probe's forcewake bit 2 was cleared while it was loaded (something reset all "
+                   "forcewake requests); the GT then stays awake only on other requesters.")
     start = samples[0][2]
-    if start["transconfA"] >> 30 & 1 and not s["transconfA"] >> 30 & 1:
+    missing = truncated(samples)
+    if missing:
+        out.append(f"  {len(missing)} columns missing from some samples (cut at the console's "
+                   f"{CONSOLE_LINE}-character line limit, or not sampled by that build): {', '.join(missing)}.")
+    if "transconfA" in s and "transconfA" in start and start["transconfA"] >> 30 & 1 and not s["transconfA"] >> 30 & 1:
         out.append("  Pipe A was active at the start and is not now: the display was turned off.")
-    if s["surfLiveA"] != start["surfLiveA"]:
+    if "surfLiveA" in s and "surfLiveA" in start and s["surfLiveA"] != start["surfLiveA"]:
         out.append(f"  Plane 1A moved from 0x{start['surfLiveA']:08x} to 0x{s['surfLiveA']:08x}.")
-    if pte(s) != pte(start):
+    if all(k in x for x in (s, start) for k in ("fbPteLo", "fbPteHi")) and pte(s) != pte(start):
         out.append(f"  GGTT entry of the bring-up's first framebuffer page changed from 0x{pte(start):016x} to "
                    f"0x{pte(s):016x}: the GGTT range was reused or cleared.")
     return out
@@ -280,6 +332,15 @@ def hang_verdict(samples, msi_count_rose=None):
     master_ever = any(x[2]["gfxMstrIrq"] & MSTR_IRQ_ENABLE for x in samples)
     rcs_enable = s["rcsBcsIntrEn"] >> 16
     imr_masked = s["rcsImr"] & (GT_USER | GT_PIPECTL_NOTIFY | GT_CONTEXT_SWITCH)
+    # RING_RESET_CTL (i915 intel_engine_regs.h): bit 0 REQUEST_RESET, 1 READY_TO_RESET,
+    # 2 CAT_ERROR. For CAT_ERROR i915 bypasses the ready-to-reset handshake
+    # (intel_reset.c, HAS#396813) and lets the hardware clear the error.
+    cat_error = bool(s["rcsReset"] & 0b100)
+    resets = [x[2]["rcsReset"] for x in samples]
+    reset_requests = sum(1 for a, b in zip(resets, resets[1:]) if b & 1 and not a & 1)
+    ever_ready = any(r & 0b10 for r in resets)
+    csb_writes = len({x[2]["rcsCsb"] & 0xF for x in samples if x[1] >= next(
+        (y[1] for y in samples if y[2]["gfxMstrIrq"] & MSTR_IRQ_ENABLE), samples[0][1])}) > 1
 
     out = ["Hang verdict (RCS):",
            f"  ACTHD: 0x{first['rcsActhd']:08x} -> 0x{s['rcsActhd']:08x}, "
@@ -290,10 +351,25 @@ def hang_verdict(samples, msi_count_rose=None):
            f"  master IRQ (0x190010 bit 31): {'set' if master_end else 'CLEAR'} at the end"
            + ("" if master_end == master_ever else " (set earlier)"),
            f"  RCS interrupt enable: {bits_named(rcs_enable)}; RCS IMR masks: {bits_named(imr_masked)}"]
+    out.append(f"  RING_RESET_CTL: {reset(s['rcsReset'])} at the end; {reset_requests} reset request(s) seen, "
+               + ("READY_TO_RESET seen" if ever_ready else "READY_TO_RESET never seen"))
+    out.append("  context-status buffer write pointer " + ("advanced" if csb_writes else
+               "never advanced (no context-switch event)") + " after interrupts were enabled")
     if msi_count_rose is not None:
         out.append(f"  host vfio-msi count during the hang: {'rising' if msi_count_rose else 'did not move'}")
+    if cat_error:
+        out.append("  RCS reports a CATASTROPHIC error. "
+                   + (f"Someone requested an engine reset {reset_requests} time(s) with the normal "
+                      "ready-to-reset handshake, which cannot complete under CAT_ERROR (i915 bypasses it: "
+                      "HAS#396813), so recovery never finishes."
+                      if reset_requests and not ever_ready else "No reset completed."))
 
-    if not valid:
+    if not valid and cat_error:
+        out.append("=> NEVER EXECUTED, not an interrupt problem: no context ever loaded on RCS (ring registers "
+                   "and ACTHD stay 0, no context-switch event) and the engine flagged a catastrophic error as "
+                   "the submission happened. The first context/ring the accelerator submitted was rejected "
+                   "(look at the error identity, fault and execlist registers); the interrupt path is armed.")
+    elif not valid:
         out.append("=> No context is running on RCS (ring not valid): the stamps were never submitted to the "
                    "hardware, or the context never loaded. Never executed; CPU/submission side.")
     elif not moved and not drained:

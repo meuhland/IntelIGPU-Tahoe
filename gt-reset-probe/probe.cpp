@@ -93,7 +93,7 @@ static void watchReporter(void*arg,wait_result_t){
  ReimsGTWatch::Reporter rep;
  const uint64_t t0=uptimeMS();
  char line[ReimsGTSampler::lineBuffer];
- ReimsGTSampler::header(line,sizeof(line));IOLog("%s",line);
+ for(unsigned p=0;p<ReimsGTSampler::parts;++p){ReimsGTSampler::header(line,sizeof(line),int(p));IOLog("%s",line);}
  while(!__atomic_load_n(&w->stop,__ATOMIC_ACQUIRE)){
   IOSleep(250);
   const uint32_t seq=__atomic_load_n(&w->shared.seq,__ATOMIC_ACQUIRE);
@@ -101,7 +101,7 @@ static void watchReporter(void*arg,wait_result_t){
   const ReimsGTSampler::Sample s=w->shared.buf[seq&1];
   const uint64_t now=uptimeMS()-t0;
   const unsigned out=rep.tick(now,seq,reading,s);
-  if(out&ReimsGTWatch::sample){ReimsGTSampler::format(line,sizeof(line),seq,now,s);IOLog("%s",line);}
+  if(out&ReimsGTWatch::sample)for(unsigned p=0;p<ReimsGTSampler::parts;++p){ReimsGTSampler::format(line,sizeof(line),seq,now,s,int(p));IOLog("%s",line);}
   if(out&ReimsGTWatch::stall){
    ReimsGTWatch::formatStall(line,sizeof(line),seq,now,reading,rep.stuckMS(now));IOLog("%s",line);
   }

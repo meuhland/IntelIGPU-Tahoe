@@ -974,6 +974,66 @@ MSI count, picks one of:
 - executed, enabled, nothing pending, MSI flat → the stamps did not request
   an interrupt.
 
+### GT watch on hardware: never executed, RCS catastrophic error (2026-10-15 late)
+
+The IOLog watch printed (129 samples, `vm113-samples-20261015-144420.txt`,
+watch armed at 0.5 s, `igpu-start` at about 418.6 s, capture to 567.7 s).
+Every line was cut at 255 characters, keeping the first 26 of 33 columns:
+IOLog's console path holds one line in `SERIAL_CONS_BUF_SIZE` (256) and drops
+the rest unless `drain_uart_sync=1` (xnu `osfmk/console/serial_general.c`
+`console_printbuf_putc`). The lost columns were `rcsEir`, `rcsEsr`,
+`rcsHwsPga` and the display/PTE ones. Fixed: samples and the header now print
+as parts of 10 columns (`ReimsGT <seq> <ms> @<first> …`, under 160
+characters), and `read_gt_serial.py` reassembles them and still reads
+truncated one-line captures.
+
+Decoded (`read_gt_serial.py … --msi flat`):
+
+| | before `igpu-start` | from `igpu-start` (same 250 ms sample) |
+|---|---|---|
+| `GEN11_GFX_MSTR_IRQ` | `0` | `0x80000000` (master enabled), unchanged after |
+| `RENDER_COPY_INTR_ENABLE` / RCS `IMR` | `0` / `0` | `0x01100110` / `0` (completion + context-switch enabled, nothing masked) |
+| `GT_INTR_DW0` / `DW1` | `0` | `0` throughout: nothing ever pending |
+| RCS `HEAD`/`TAIL`/`START`/`CTL`, `ACTHD` | `0` | `0` throughout: no context ever loaded, `ACTHD` never moved |
+| RCS context-status pointer | `0x7007` | `0x0`, never advances: no context-switch event |
+| RCS `EXECLIST_STATUS_LO` | `0x1` | `0x40003018` |
+| RCS `MI_MODE` | `0x200` (idle) | `0x0` (not idle, not stopped) |
+| RCS `RING_RESET_CTL` | `0` | `0x4` = **`CAT_ERROR`**; bit 0 (`REQUEST_RESET`) pulses every ~8.25 s, `READY_TO_RESET` never |
+| `ERROR_GEN6` | `0x37` | `0x7b` |
+| `GEN12_RING_FAULT_REG` | `0` | `0` |
+| forcewake acks GT / Render | `0x4`/`0x4` (hold bit 2) | `0x2`/`0x2`: the hold's bit 2 was cleared; GT ack dropped to 0 for ~8 s once |
+
+Answers: `ACTHD` never moved, nothing is pending in `GT_INTR_DW0`, and the
+master bit is set (with the engine enable on and `IMR` clear). So this is
+**never executed, not an interrupt mask**, consistent with the flat MSI
+count. The interrupt path is armed; the GPU never ran anything.
+
+New: in the very sample where `start` armed interrupts, RCS reported a
+**catastrophic error** (`RESET_CTL_CAT_ERROR`) with no context ever loaded.
+Something then requests an engine reset every ~8 s using the normal
+handshake and waits for `READY_TO_RESET`. i915 notes that for `CAT_ERROR`
+the ready-to-reset handshake must be bypassed (`intel_reset.c`,
+HAS#396813: write `CAT_ERROR`, let the hardware clear it), so that recovery
+can never complete. That fits a silent, endless wait in `finishAllStamps`.
+
+So the question becomes why the first submission to RCS raised a
+catastrophic error in the VM. Leading candidates (to be checked against the
+next capture's error columns):
+
+- the GPU fetching the context image, ring or status page at an address the
+  host IOMMU does not map for this VM (a GGTT entry pointing outside guest
+  RAM, e.g. at stolen memory the VM does not really have). The host logs
+  such DMA faults (`DMAR:` lines naming `00:02.0` and the address), a
+  no-code check;
+- a context image or engine setup the hardware rejects (Apple built it for
+  TGL GT2; a GT1 or RPL-S difference), which `EIR`/`ESR`, `IPEIR`,
+  `INSTDONE` and `EXECLIST_STATUS_HI` should narrow down.
+
+The sampler now also reads RCS `IPEIR`, `INSTDONE`, `DMA_FADD`, `BBADDR`,
+`EXECLIST_STATUS_HI`, `CONTEXT_CONTROL` and `GEN12_FAULT_TLB_DATA0/1`
+(i915 v6.6), and the verdict reports `CAT_ERROR`, the reset requests and the
+context-status pointer.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.

@@ -195,6 +195,51 @@ class Decoder(unittest.TestCase):
         self.assertIn("host vfio-msi count during the hang: did not move", buf.getvalue())
         pathlib.Path(f.name).unlink()
 
+    def test_parts_are_reassembled(self):
+        v = {n: i for i, n in enumerate(R.DEFAULT_NAMES)}
+        names = R.DEFAULT_NAMES
+        lines = []
+        for first in range(0, len(names), 10):
+            lines.append("ReimsGT seq ms @%d %s" % (first, " ".join(names[first:first + 10])))
+        for seq, ms in ((1, 250), (2, 500)):
+            for first in range(0, len(names), 10):
+                lines.append(f"ReimsGT {seq} {ms} @{first} " + " ".join(f"{v[n]:08x}" for n in names[first:first + 10]))
+        got_names, samples = R.parse("\n".join(lines))
+        self.assertEqual(got_names, names)
+        self.assertEqual([(s[0], s[1]) for s in samples], [(1, 250), (2, 500)])
+        self.assertEqual(samples[0][2], v)
+        self.assertEqual(R.truncated(samples), [])
+
+    def test_truncated_legacy_line_keeps_full_columns(self):
+        full = line(3, 503, **LIT)
+        cut = full[:R.CONSOLE_LINE]
+        _, samples = R.parse(cut)
+        self.assertEqual(len(samples), 1)
+        kept = samples[0][2]
+        self.assertEqual(len(kept), (R.CONSOLE_LINE - len("ReimsGT 3 503")) // 9)
+        self.assertEqual(list(kept), R.DEFAULT_NAMES[:len(kept)])
+        self.assertIn("fbPteLo", R.truncated(samples))
+        # A short garbled line (not at the limit) is still rejected.
+        self.assertEqual(R.parse(full[:120])[1], [])
+        out = "\n".join(R.summary(samples + samples))
+        self.assertIn("columns missing from some samples", out)
+
+    def test_verdict_catastrophic_error_never_executed(self):
+        # 2026-10-15 window, decoded: interrupts armed, no context ever loaded,
+        # CAT_ERROR with periodic reset requests that never get READY_TO_RESET.
+        before = dict(LIT, fwAckGT=0x4, fwAckRender=0x4, rcsCsb=0x7007, rcsMiMode=0x200, errorGen6=0x37)
+        armed = dict(LIT, fwAckGT=0x2, fwAckRender=0x2, gfxMstrIrq=0x80000000, rcsBcsIntrEn=0x01100110,
+                     rcsExecStatus=0x40003018, rcsReset=0x4, errorGen6=0x7b)
+        states = [before, armed, dict(armed, rcsReset=0x5), armed, dict(armed, rcsReset=0x5), armed]
+        out = self.verdict(states, msi=False)
+        self.assertIn("RING_RESET_CTL: CATASTROPHIC at the end; 2 reset request(s) seen, READY_TO_RESET never seen", out)
+        self.assertIn("never advanced (no context-switch event)", out)
+        self.assertIn("HAS#396813", out)
+        self.assertIn("=> NEVER EXECUTED, not an interrupt problem", out)
+        summary = "\n".join(R.summary(R.parse("\n".join(
+            line(i * 20, i * 5000, **st) for i, st in enumerate(states)))[1]))
+        self.assertIn("forcewake bit 2 was cleared", summary)
+
     def test_empty_log(self):
         self.assertIn("No ReimsGT samples", R.summary([])[0])
 
