@@ -83,6 +83,23 @@ so build it and pre-load it once before the window, as above.
 Also record the VM's vCPU count (`qm config 113 | grep -E 'cores|sockets'`);
 it matters if the watch reports `starved`.
 
+**Interrupt delivery, from the host (no new code).** Apple's standalone
+accelerator takes the IGD's MSI (index 1; PORT doc "Standalone interrupt
+path"). vfio shows the passed-through device's interrupts in the host's
+`/proc/interrupts`, so on the Proxmox host:
+
+```sh
+grep -E 'vfio.*0000:00:02.0' /proc/interrupts                # before igpu-start (baseline)
+lspci -vv -s 00:02.0 | grep -A1 'MSI:'                       # Enable+ once the guest enabled MSI
+grep -E 'vfio.*0000:00:02.0' /proc/interrupts; sleep 5; grep -E 'vfio.*0000:00:02.0' /proc/interrupts   # during the hang
+```
+
+| Host shows during the hang | Meaning |
+|---|---|
+| a `vfio-msi` line whose count rises | the GPU raises MSIs and the host forwards them; delivery works |
+| a `vfio-msi` line, count fixed (and the watch shows `GT_INTR_DW0` pending) | the GPU raised one interrupt that was never serviced, or never raised one: compare with the watch |
+| no `vfio-msi` line (only `vfio-intx`, or nothing), `MSI: Enable-` | the guest never enabled MSI on the device: Apple's filter source is not attached or IOPCIFamily did not set MSI up |
+
 ## In the window
 
 Stop at the first unexpected result and save evidence. A hang in step 4 only

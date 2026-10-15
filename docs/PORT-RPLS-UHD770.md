@@ -813,6 +813,45 @@ Reading the hang from the capture:
 | samples continue, RCS ring never valid / tail never moves | nothing was submitted: the wait is earlier, CPU-side |
 | CSB has unread entries | execlist events raised but not processed (same interrupt question) |
 
+##### Standalone interrupt path (static, 2026-10-15)
+
+What "Using Local Filter Interrupt Source" sets up, from the `sle` binary:
+
+- `IGInterruptBridge::initInterruptBridge` (`0x49f90`) logs that line when
+  the bridge has no framebuffer service to register with, and calls
+  `createFilterInterruptEventSource` (`0x4a13c`). That walks the provider's
+  interrupt indices with `getInterruptType` and takes the first with
+  `kIOInterruptTypePCIMessaged` (bit 16), falling back to index 0 only if
+  there is none. The guest inventory has index 0 INTx and index 1 MSI, so
+  **Apple uses MSI, index 1**, through IOPCIFamily, and adds the
+  `IOFilterInterruptEventSource` to its work loop.
+- `IGInterruptBridge::enable` (`0x4a332`, called from `startGraphicsEngine`
+  after `initFirmware`), standalone branch: enables that event source, clears
+  the master enable, runs `enableInterrupts`, then sets bit 31 of
+  `GEN11_GFX_MSTR_IRQ` (`0x190010`).
+- `enableInterrupts` (`0x4a42e`) writes `GEN11_RENDER_COPY_INTR_ENABLE`
+  (`0x190030`) = `0x1100110` for scheduler type 1, else `0x100010`, unmasks
+  the engine masks (`0x1900a8` and the others written 0), and clears pending
+  identities through the `0x190070` selector / `0x190060` identity pairs. Bits
+  (i915 `intel_gt_regs.h`): 4 = `GT_RENDER_PIPECTL_NOTIFY_INTERRUPT`, 8 =
+  `GT_CONTEXT_SWITCH_INTERRUPT`, RCS in the high half, BCS in the low half.
+  `schedulerType` maps scheduler values 3/4/5 to 2/2/1, and the forced
+  fallback stores 5 (`orq $0x2800000` into fFlags bits 23–25 at `0x27b00`,
+  right before "Forced to use %s Scheduler"), so the host preemptive
+  scheduler is type 1 and gets context-switch interrupts as well.
+- The filter (`interruptFilterHandler`, `0x4af16`) masks the master bit,
+  `readAndClearInterrupts` reads and writes back `GT_INTR_DW0/1`, and
+  re-enables the master.
+
+So on paper the standalone interrupt setup is complete. What is unknown is
+whether the MSI is delivered in the VM. That is visible on the host without
+any new code: vfio lists the device's MSI vectors in `/proc/interrupts`,
+with counts (TEST-WINDOW "Next window: watch the hang"). Combined with the
+watch: an MSI vector whose count rises while `GT_INTR_DW0` keeps returning to
+0 means interrupts arrive and are serviced (look elsewhere). A pending
+`GT_INTR_DW0` with no MSI vector, or a count that never moves, means
+delivery is the blocker.
+
 3. **Guest, `gt-reset-probe` before `igpu-start`:** its forcewake (bit 0)
    read. 1/3 in the guest → the VM can wake the GT and the difference is
    Apple's path; 0 even with acks → the GT cannot wake in the guest.
