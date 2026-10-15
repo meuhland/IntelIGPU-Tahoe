@@ -1264,6 +1264,57 @@ allocation window). The decoder prints the restore list (`CONTEXT_CONTROL`,
 `RING_*`, `PDP*`), the ring's commands, and the GGTT run list with any entry
 at physical 0. Host-tested; kexts syntax-checked.
 
+#### Apple's first context, read from the binary (offline, 2026-10-16)
+
+- **Image layout = Gen12 (i915) layout.** `IGHardwareContext` keeps the image
+  in an `IGSharedMappedBuffer` (`+0x98`); page 1 is the register state. Apple
+  writes `RING_TAIL` at `+0x101c` (dword 7), `RING_START` (the ring's GPU VA,
+  `initRingGPUVirtualAddress`) at `+0x1024` (dword 9) and `RING_CTL` at
+  `+0x102c` (dword 11) = `((RingSizeKB·1024 / 4096) − 1) << 12 | 1`, e.g.
+  `0x7001` for 32 KiB: valid (`initRingControl(true)` from `initRingRegisters`).
+  These are i915's `CTX_RING_*` slots.
+- **Bootstrap.** New contexts are normally copied from a golden "safe image"
+  (`restoreFromSafeImage`: accelerator `+0x1268`, size `kIGHwCsDesc+0x55`),
+  and `startGraphicsEngine` creates that image: it runs the first context,
+  waits (`finishAllStamps`), then `copyContextImage`. The **first** context
+  therefore starts from `initWithOptions`: a 0x140-byte per-engine template
+  (`g_cInitGfxRingContextRCS` at `0xc04a0`; also BCS/CCS/VCS/VECS/POCS)
+  copied to `+0x1000`, `CONTEXT_CONTROL` forced to `0xffff0008` when fFlags
+  `0x18000` is set, PDPs from the PPGTT object at `+0x109c/+0x10a4`, and the
+  descriptor (`+0x89`) set to `0x309` (valid, privilege, priority 1) before the
+  addressing mode (`getHardwareContextAddressMode`) and LRCA are added.
+- **The RCS template**, decoded: `NOP`, `LRI(11)` (`0x2244` =
+  `0xffff0000`, ring `0x2034/30/38/3c`, `0x2168/40/10`, `0x21c0/c4/c8`),
+  zeros where i915 has `CCID`/`0x2b4`, `LRI(9)` (`0x23a8`, `PDP3…PDP0`),
+  `LRI(1)` `0x21b0` (`POSH_LRCA`), `LRI(1)` `0x20c8` (`R_PWR_CLK_STATE` = 0),
+  `LRI(2)` `0x4204/0x4200`. A sane Gen12 restore list (absolute RCS
+  offsets, no CS_MMIO).
+- **The observed `CONTEXT_CONTROL` does not come from this image.** Restoring
+  Apple's image would leave the register at `0x0` or `0x8` (value bits of
+  `0xffff0000`/`0xffff0008`). Every window read `0x100` after submission
+  (bit 8, `GEN12_CTX_CTRL_OAR_CONTEXT_ENABLE`), and the ring registers stayed
+  0 although Apple's image carries a valid `RING_CTL`. Together with the GPU's
+  DMA write to `0x0` at submission, this points at **the engine loading
+  memory other than the image Apple filled**: the LRCA's GGTT mapping, as
+  seen by the GPU, leads elsewhere. The context dump (`ReimsGT ctx`) shows
+  the PTE and what is actually in that memory.
+- `R_PWR_CLK_STATE`: i915 programs `0x80041000` on Gen12 for one slice
+  (`intel_sseu_make_rpcs`, `has_slice_pg` only); TGL GT2 and UHD 770 GT1
+  are both one slice, so this is not expected to separate them. The
+  template leaves it 0; the decoder checks the value in the dump.
+
+The sampler also gains `RING_CCID` (`0x2180`, the context the engine
+considers current) and the RC6/power-gating state (`RC_CONTROL` `0xa090`,
+`RC_STATE` `0xa094`, `PG_ENABLE` `0xa210`, `RC6_LOCATION` `0xd40`,
+`RC6_CTX_BASE` `0xd48`), 58 columns. The dump covers 96 dwords per page so it
+reaches `R_PWR_CLK_STATE`. The decoder compares the restore list with
+i915's `gen12_rcs_offsets`, decodes the submitted descriptor's flags, and
+checks `R_PWR_CLK_STATE`.
+
+**Control run planned:** [LINUX-CONTROL-RPLS.md](LINUX-CONTROL-RPLS.md), i915
+in a VM with this exact passthrough, execlists (`enable_guc=0`) and GuC, to
+tell "Apple's submission" from "this VM setup".
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.

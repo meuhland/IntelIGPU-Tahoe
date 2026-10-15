@@ -295,9 +295,50 @@ class Decoder(unittest.TestCase):
         self.assertIn("LRI 0x0003c RING_CTL           = 0x00007000", out)
         self.assertIn("RING_CTL in the image has no valid bit", out)
         self.assertIn("ring buffer at GGTT 0x40010000", out)
+        # This fixture omits CCID/SEMA_TOKEN (0x180/0x2b4): the layout check must notice.
+        self.assertIn("DIFFERS from i915's Gen12 RCS layout at entry 11: 0x3a8, 0x28c vs i915 0x180, 0x2b4", out)
         self.assertEqual(R.decode_lri([0, 0, 0]), [])
         self.assertIn("no MI_LOAD_REGISTER_IMM found", "\n".join(R.context_summary(
             {1: {1: {"pte": 1, "words": {i: 0 for i in range(64)}}}})))
+
+    def test_full_i915_layout_rpcs_and_descriptor(self):
+        lri = lambda n, posted=True: (0x22 << 23) | (1 << 19) | (1 << 12 if posted else 0) | (2 * n - 1)
+        regs1 = [0x244, 0x034, 0x030, 0x038, 0x03c, 0x168, 0x140, 0x110, 0x1c0, 0x1c4, 0x1c8, 0x180, 0x2b4]
+        regs2 = [0x3a8, 0x28c, 0x288, 0x284, 0x280, 0x27c, 0x278, 0x274, 0x270]
+        page = [0, lri(13)] + sum(([r, 0] for r in regs1), []) + [0] * 5
+        page += [lri(9)] + sum(([r, 0] for r in regs2), [])
+        page += [lri(3), 0x1b0, 0, 0x5a8, 0, 0x5ac, 0] + [0] * 6 + [lri(1, False), 0x0c8, 0x80041000]
+        self.assertLess(len(page), 96)
+        regs = R.decode_lri(page)
+        self.assertEqual([o for o, _ in regs], R.I915_GEN12_RCS_ORDER)
+        dumps = {0x40008000: {1: {"pte": 0x14b75808b, "words": dict(enumerate(page))}}}
+        out = "\n".join(R.context_summary(dumps))
+        self.assertIn("matches i915's Gen12 RCS layout (26 registers checked)", out)
+        self.assertIn("R_PWR_CLK_STATE 0x80041000: slices 1, subslice count off, EU min/max 0/0 (= i915 for 1 slice)",
+                      out)
+        bad = list(page)
+        bad[bad.index(0x80041000)] = 0x80042000  # two slices on a one-slice GT
+        out = "\n".join(R.context_summary({1: {1: {"pte": 1 | 0x1000, "words": dict(enumerate(bad))}}}))
+        self.assertIn("slices 2", out)
+        self.assertIn("i915 would program 0x80041000", out)
+        swapped = list(page)
+        swapped[2], swapped[4] = swapped[4], swapped[2]  # RING_HEAD before CONTEXT_CONTROL
+        out = "\n".join(R.context_summary({1: {1: {"pte": 0x1001, "words": dict(enumerate(swapped))}}}))
+        self.assertIn("DIFFERS from i915's Gen12 RCS layout at entry 0", out)
+        d = R.describe_descriptor(0x40008119 | 3 << 3, (5 << 5) | (0 << 16))
+        self.assertIn("LRCA 0x40008000, valid, privilege, addressing legacy 64b", d)
+        self.assertIn("sw ctx id 5", d)
+
+    def test_ccid_and_rc6_lines(self):
+        st = dict(LIT, **AWAKE, rcsCcid=0x40008001, rcControl=0, rcState=0, pgEnable=0,
+                  rc6Location=0x1, rc6CtxBase=0x7c000000)
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **st), line(1, 250, **st)]))[1]))
+        self.assertIn("RCS CCID 0x40008001 (current context GGTT 0x40008000, enabled)", out)
+        self.assertIn("RC6_CTX_BASE 0x7c000000 (RC6 off)", out)
+        on = dict(st, rcControl=0x88040000, rcsCcid=0)
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **on), line(1, 250, **on)]))[1]))
+        self.assertIn("RCS CCID 0x00000000 (no current context)", out)
+        self.assertIn("RC6 ON", out)
 
     def test_ring_commands_and_gtt_window(self):
         pc = (0x3 << 29) | (0x3 << 27) | (0x2 << 24) | (6 - 2)       # PIPE_CONTROL len 6

@@ -61,6 +61,13 @@ constexpr Reg regs[]={
  // (RCS_ELST0/1, PDP0 and STATUS_CTXT_ST_PTR, sampled once, read 0 on Gen12.)
  {0x002510,"rcsSq0Lo"},{0x002514,"rcsSq0Hi"},{0x002518,"rcsSq1Lo"},{0x00251c,"rcsSq1Hi"},
  {0x00229c,"rcsGfxMode"},
+ // Engine-side view and power state (2026-10-16). CCID (i915 intel_engine_regs.h
+ // CCID(base)+0x180): the context the engine considers current. RC6/power
+ // gating (intel_gt_regs.h): Apple never writes RC_CONTROL and writes
+ // PG_ENABLE only in the GuC scheduler, so these should stay as the reset
+ // left them; RC6_LOCATION/RC6_CTX_BASE are the BIOS-set power-context base.
+ {0x002180,"rcsCcid"},{0x00a090,"rcControl"},{0x00a094,"rcState"},{0x00a210,"pgEnable"},
+ {0x000d40,"rc6Location"},{0x000d48,"rc6CtxBase"},
  {0,"lrcaPteLo",3},{0,"lrcaPteHi",4},
  {0x070008,"transconfA"},{0x0701ac,"surfLiveA"},
  // GGTT PTE of the bring-up's first framebuffer page (GGTT 0x01000000):

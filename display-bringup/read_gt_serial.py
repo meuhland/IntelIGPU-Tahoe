@@ -33,6 +33,8 @@ DEFAULT_NAMES = [
     "ggttPte0Lo", "ggttPte0Hi",
     "rcsSq0Lo", "rcsSq0Hi", "rcsSq1Lo", "rcsSq1Hi",
     "rcsGfxMode",
+    "rcsCcid", "rcControl", "rcState", "pgEnable",
+    "rc6Location", "rc6CtxBase",
     "lrcaPteLo", "lrcaPteHi",
     "transconfA", "surfLiveA",
     "fbPteLo", "fbPteHi",
@@ -63,7 +65,27 @@ CTX_REG_NAMES = {
     0x1c0: "BB_PER_CTX_PTR", 0x1c4: "INDIRECT_CTX", 0x1c8: "INDIRECT_CTX_OFFSET",
     0x3a8: "CTX_TIMESTAMP", 0x28c: "PDP3_UDW", 0x288: "PDP3_LDW", 0x284: "PDP2_UDW",
     0x280: "PDP2_LDW", 0x27c: "PDP1_UDW", 0x278: "PDP1_LDW", 0x274: "PDP0_UDW", 0x270: "PDP0_LDW",
+    0x180: "CCID", 0x2b4: "SEMA_TOKEN", 0x1b0: "POSH_LRCA", 0x5a8: "CS_CTX_TS_UDW", 0x5ac: "CS_CTX_TS",
+    0x0c8: "R_PWR_CLK_STATE", 0x028: "EXCC", 0x09c: "MI_MODE", 0x0c0: "INSTPM",
 }
+# i915 gen12_rcs_offsets (intel_lrc.c): the register order a Gen12 RCS context
+# restores in its first four LRI blocks.
+I915_GEN12_RCS_ORDER = [0x244, 0x034, 0x030, 0x038, 0x03c, 0x168, 0x140, 0x110, 0x1c0, 0x1c4, 0x1c8, 0x180,
+                        0x2b4, 0x3a8, 0x28c, 0x288, 0x284, 0x280, 0x27c, 0x278, 0x274, 0x270,
+                        0x1b0, 0x5a8, 0x5ac, 0x0c8]
+# i915 intel_sseu_make_rpcs on Gen12 (has_slice_pg only): RPCS_ENABLE |
+# S_CNT_ENABLE | slices << 12, i.e. 0x80041000 for one slice (UHD 770 and TGL GT2).
+RPCS_EXPECTED_1_SLICE = 0x80041000
+
+
+def describe_descriptor(lo, hi):
+    """Gen12 execlist context descriptor (i915 intel_lrc.h GEN8_CTX_*/GEN11_*)."""
+    modes = {0: "advanced", 1: "legacy 32b", 2: "mode 2", 3: "legacy 64b"}
+    flags = [n for b, n in ((0, "valid"), (1, "force-PD-restore"), (2, "force-restore"),
+                            (5, "L3LLC-coherent"), (8, "privilege")) if lo >> b & 1]
+    return (f"LRCA 0x{lo & 0xFFFFF000:08x}, {', '.join(flags) or 'no flags'}, addressing {modes[lo >> 3 & 3]}, "
+            f"priority {lo >> 9 & 3}, sw ctx id {hi >> 5 & 0x7FF}, engine instance {hi >> 16 & 0x3F}, "
+            f"class {hi >> 29 & 7}")
 
 # Forcewake: TGL's native SafeForceWake requests with index 1 (bit 1,
 # ReimsADLDesktopLink.cpp kForceWakeBit); the gt-reset-probe hold build uses
@@ -309,6 +331,16 @@ def summary(samples):
                        f"-> PTE 0x{pte(s, 'lrcaPte'):016x} ({'valid' if valid else 'NOT valid'}, physical 0x{addr:x})"
                        + (": the context image is read from and saved to physical 0 (cf. the DMAR write at 0x0)."
                           if valid and addr == 0 else "."))
+            out.append(f"    descriptor: {describe_descriptor(s['rcsSq0Lo'], s['rcsSq0Hi'])}"
+                       " (i915 Gen12 submits valid, privilege, legacy 64b)")
+    if "rcsCcid" in s:
+        ccid = s["rcsCcid"]
+        out.append(f"  RCS CCID 0x{ccid:08x}" + (f" (current context GGTT 0x{ccid & 0xFFFFF000:08x}, enabled)"
+                                                  if ccid & 1 else " (no current context)"))
+    if all(k in s for k in ("rcControl", "pgEnable", "rc6CtxBase")):
+        out.append(f"  RC6/PG: RC_CONTROL 0x{s['rcControl']:08x}, RC_STATE 0x{s['rcState']:08x}, PG_ENABLE "
+                   f"0x{s['pgEnable']:08x}, RC6_LOCATION 0x{s['rc6Location']:08x}, RC6_CTX_BASE 0x{s['rc6CtxBase']:08x}"
+                   + (" (RC6 off)" if not s["rcControl"] else " (RC6 ON: the GPU saves its power context at RC6_CTX_BASE)"))
     if "rcsGfxMode" in s:
         out.append(f"  RCS GFX_MODE 0x{s['rcsGfxMode']:08x} (bit 3 DISABLE_LEGACY_MODE "
                    f"{'set' if s['rcsGfxMode'] & 8 else 'clear, as Apple initModeRegisters writes it'}).")
@@ -578,6 +610,22 @@ def context_summary(dumps):
                 name = CTX_REG_NAMES.get(off & 0xFFF, "")
                 out.append(f"    LRI 0x{off:05x} {name:<18} = 0x{val:08x}")
             named = {CTX_REG_NAMES.get(off & 0xFFF): val for off, val in regs}
+            order = [off & 0xFFF for off, _ in regs][:len(I915_GEN12_RCS_ORDER)]
+            if order == I915_GEN12_RCS_ORDER[:len(order)]:
+                out.append(f"    -> restore list matches i915's Gen12 RCS layout ({len(order)} registers checked).")
+            else:
+                first = next(i for i, (a, b) in enumerate(zip(order, I915_GEN12_RCS_ORDER)) if a != b) \
+                    if any(a != b for a, b in zip(order, I915_GEN12_RCS_ORDER)) else len(order)
+                out.append(f"    -> restore list DIFFERS from i915's Gen12 RCS layout at entry {first}: "
+                           + ", ".join(f"0x{o:03x}" for o in order[first:first + 4]) + " vs i915 "
+                           + ", ".join(f"0x{o:03x}" for o in I915_GEN12_RCS_ORDER[first:first + 4]))
+            if "R_PWR_CLK_STATE" in named:
+                rpcs = named["R_PWR_CLK_STATE"]
+                out.append(f"    -> R_PWR_CLK_STATE 0x{rpcs:08x}: slices {rpcs >> 12 & 0x3F}, "
+                           f"subslice count {'on ' + str(rpcs >> 8 & 7) if rpcs >> 11 & 1 else 'off'}, "
+                           f"EU min/max {rpcs & 0xF}/{rpcs >> 4 & 0xF}"
+                           + (" (= i915 for 1 slice)" if rpcs == RPCS_EXPECTED_1_SLICE else
+                              f" (i915 would program 0x{RPCS_EXPECTED_1_SLICE:08x} for 1 slice)"))
             if "RING_CTL" in named and not named["RING_CTL"] & RING_VALID:
                 out.append("    -> RING_CTL in the image has no valid bit: restoring this context leaves no ring "
                            "(matches ring registers staying 0 and CAT_ERROR).")

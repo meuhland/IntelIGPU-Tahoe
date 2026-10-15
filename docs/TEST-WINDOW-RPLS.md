@@ -89,9 +89,9 @@ Next run of this section, additions:
   submit queue (`0x2510`) first shows a context, the probe prints
   `ReimsGT ctx <lrca> p0/p1 pte …` and `… @<n> …` lines (the context's
   per-process status page and register-state page, read from guest memory
-  through their GGTT entries), `p2` lines (the first 64 dwords of the ring
+  through their GGTT entries), `p2` lines (the first 96 dwords of the ring
   from the restored `RING_START`, if any), and about 43 `ReimsGT gtt 40000000 …`
-  lines (Apple's GGTT window from 1 GiB). Expect roughly 70 extra lines at
+  lines (Apple's GGTT window from 1 GiB). Expect roughly 80 extra lines at
   once. The decoder prints "Submitted context LRCA GGTT …", the decoded
   restore list (`CONTEXT_CONTROL`, `RING_*`, `PDP*`), the ring's commands,
   and a "GGTT window …" run list with any entry at physical 0. If no

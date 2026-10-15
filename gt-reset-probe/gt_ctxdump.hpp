@@ -16,7 +16,7 @@
 namespace ReimsCtxDump {
 
 constexpr unsigned pages=2;          // PPHWSP and register state
-constexpr unsigned dwords=64;        // per page
+constexpr unsigned dwords=96;        // per page: covers R_PWR_CLK_STATE (Gen12 RCS ~dword 67)
 constexpr unsigned perLine=8;        // 8 x 9 + prefix stays far under 255
 constexpr unsigned ringPage=2;       // printed as "p2": the ring buffer (from RING_START)
 // Apple's GGTT allocations start at 1 GiB (status page at 0x40004000 on
