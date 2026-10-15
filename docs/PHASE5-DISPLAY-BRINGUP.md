@@ -337,6 +337,25 @@ Each first load of a new kext binary stages to the AuxKC and needs one reboot
 before it loads (as for the phase-4 probe); `/private/tmp` is cleared on
 reboot, so re-`ditto` the copy after rebooting.
 
+### Stage 3 rerun with the GGTT range search (2026-10-15, VM 113, from a snapshot)
+
+New dry-run (`036B7152`) and execute (`EDB09CF6`, GT sampler) builds.
+
+- Dry run: `Planned`, 0 blocked writes; `ReimsBringupFramebufferGGTT`
+  `0x2a80000`, `ReimsBringupGMADRLength` `0x10000000` (256 MiB).
+- Execute: `OK`, 0 blocked writes; GGTT entries written at BAR0 `0x815400`
+  (first `0xb1a19001` = first DMA page | present), `PLANE_SURFLIVE`
+  `0x02a80000`, pipe A DSL advancing, no FIFO underrun. The monitor showed the
+  test pattern, OSD 4K@30.
+- EDID over GMBUS pin 9 (`adlsGmbusPin`): `OK`, `SAM` 28931, preferred
+  3840×2160 at 594 MHz, one extension. The 2026-10-13 pin-2 timeout is fixed.
+- The range below `0x2a80000` was in use. Its end matches host i915's 4K
+  framebuffer at GGTT `0x00aa4000` (8100 pages, ending `0x02a48000`; next
+  256 KiB boundary `0x02a80000`), so it is most likely the host's mapping left
+  across the handoff rather than an earlier bring-up run.
+
+Readouts: `~/work/igpu-notes/window-20261015-stage3-{dryrun,execute}.txt`.
+
 ## Stage 4: handoff to upstream
 
 Once the port lights the output, upstream's flow applies: the native

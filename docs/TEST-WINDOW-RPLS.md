@@ -62,16 +62,18 @@ accelerator stay) and a guest reboot. Roll back the snapshot only if the disk
 state is in doubt; a rollback also reverts any kexts installed since it.
 
 **Stage-3 GGTT range.** Until 2026-10-15 the bring-up used a fixed GGTT
-`0x01000000`. On the 2026-10-14 boots that range already held a mapping (its
-owner was not identified; a likely one is entries an earlier stage-3 run left
-behind, since unloading did not restore them and a guest reboot does not
-clear the GGTT), so the in-use guard stopped steps 2–3 at their first check
+`0x01000000`. On the 2026-10-14 boots that range already held a mapping, most
+likely host i915's 4K framebuffer left in the GGTT across the host→VM handoff
+(host scanned from `0x00aa4000`; 8100 pages end at `0x02a48000`, and on
+2026-10-15 the search landed on the next 256 KiB boundary, `0x02a80000`), so
+the in-use guard stopped steps 2–3 at their first check
 (`Scanout FAIL 0x808008`). The bring-up now uses the first unused 256 KiB-aligned
 range from 16 MiB up inside GMADR (BAR2), and restores the range's entries on
 unload and on any failed run. `read_bringup.py` prints the chosen
 `ReimsBringupFramebufferGGTT` and `ReimsBringupGMADRLength`; it refuses with
 `no unused GGTT range inside the GMADR aperture` if nothing fits. These are
-new binaries (first load costs a reboot each). The sampler's `fbPteLo`/`fbPteHi` watch stays fixed at BAR0 `0x808000` (GGTT `0x01000000`), so it follows the bring-up's first page only when `ReimsBringupFramebufferGGTT` is `0x1000000`.
+new binaries (first load costs a reboot each). Run on 2026-10-15: dry run
+`Planned` at `0x2a80000`, execute `OK`, pattern at 4K@30, EDID `OK`. The sampler's `fbPteLo`/`fbPteHi` watch stays fixed at BAR0 `0x808000` (GGTT `0x01000000`), so it follows the bring-up's first page only when `ReimsBringupFramebufferGGTT` is `0x1000000`.
 A stage-2-only execute build (`REIMS_BRINGUP_STAGE=2 REIMS_BRINGUP_EXECUTE=1`)
 did not change the accelerator's fuse reads or the hang (2026-10-14).
 

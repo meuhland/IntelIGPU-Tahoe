@@ -212,7 +212,8 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On
   hardware the sink did not answer DDC pin 2 during stage 3 (scanout
-  unaffected). Cause (fixed in code, not yet rerun): pin 2 is the VBT value;
+  unaffected). Cause (fixed; confirmed on hardware 2026-10-15: EDID `OK`, SAM
+  28931, 3840x2160 @ 594 MHz): pin 2 is the VBT value;
   on ADL-S i915 `map_ddc_pin` maps it through `adls_ddc_pin_map` to
   `GMBUS_PIN_9_TC1`. `edid_read.hpp` `adlsGmbusPin` now does the same for the
   EDID read and the SCDC setup (which had the same bug).
@@ -243,10 +244,15 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   bring-up kext now shares `fb_memory.hpp` and `hdmi_scanout.hpp` refuses a
   GGTT range already in use. Host tests: test_fb_memory, updated
   test_hdmi_scanout. Not run on hardware.
-- Bring-up GGTT range (code, 2026-10-15, not run on hardware): stage 3 no
-  longer uses a fixed GGTT `0x01000000`, which was already taken on the
-  2026-10-14 boots (owner unknown; likely entries an earlier run left, since
-  `stop()` never restored them). `findUnusedGgtt` (hdmi_scanout.hpp) picks the
+- Bring-up GGTT range (done on hardware 2026-10-15): stage 3 no longer uses a
+  fixed GGTT `0x01000000`, which was already taken on the 2026-10-14 boots.
+  The occupant is most likely host i915's 4K framebuffer mapping left in the
+  GGTT across the host→VM handoff: host scanned from `0x00aa4000`, 8100 pages
+  end at `0x02a48000`, and the search landed on the next 256 KiB boundary,
+  `0x02a80000`. On hardware: dry run `Planned` (0 blocked) chose `0x2a80000`
+  inside 256 MiB GMADR; execute `OK`, `PLANE_SURFLIVE` `0x02a80000`, no
+  underrun, test pattern at 4K@30 on the monitor. Readouts
+  `~/work/igpu-notes/window-20261015-stage3-{dryrun,execute}.txt`. `findUnusedGgtt` (hdmi_scanout.hpp) picks the
   first unused 256 KiB-aligned range (all 8100 entries identical) from 16 MiB
   up inside GMADR; `restoreGgtt` puts the original entry back on unload and on
   any failed run. Option C (`rpls_light.hpp`) uses the same search. Published
