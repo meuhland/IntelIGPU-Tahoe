@@ -4,9 +4,13 @@
 
 // Read-only GT watch for the phase-6 accelerator start. The first start on
 // a780 (2026-10-13) wedged IOKit: ioreg and logd blocked, so neither registry
-// properties nor IOLog could report where the GPU init stopped. A timer in
-// the bring-up kext samples these registers and prints them with kprintf,
-// which goes to the serial console without IOKit or logd.
+// properties nor the unified log could report where the GPU init stopped.
+// The sampler (a timer in the bring-up kext, threads in the gt-reset-probe
+// hold build) prints these registers with IOLog: besides os_log, IOLog writes
+// to the console, which serial=3 puts on the serial port, without logd.
+// kprintf does NOT: on a release kernel it only reaches serial with the
+// debug=0x8 (DB_KPRT) boot-arg, otherwise it goes to os_log alone (xnu
+// pe_kprintf.c), which is why the 2026-10-15 watch printed nothing.
 //
 // Reads only. It never requests forcewake, so GT-domain registers read as 0
 // while the GT sleeps; the forcewake acks in the same sample show which. The

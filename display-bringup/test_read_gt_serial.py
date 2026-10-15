@@ -135,6 +135,66 @@ class Decoder(unittest.TestCase):
         self.assertEqual(R.stall_summary([]), [])
         self.assertEqual(len(R.parse(text)[1]), 1)  # stall lines are not samples
 
+    def verdict(self, states, msi=None):
+        lines = [line(i * 20, i * 5000, **st) for i, st in enumerate(states)]
+        return "\n".join(R.hang_verdict(R.parse("\n".join(lines))[1], msi))
+
+    # Interrupt setup Apple writes standalone (enableInterrupts, master bit).
+    IRQ_ON = dict(gfxMstrIrq=0x80000000, rcsBcsIntrEn=0x01100110)
+
+    def test_verdict_never_executed(self):
+        stuck = dict(LIT, **AWAKE, **RCS_ON, **self.IRQ_ON, rcsHead=0x40, rcsTail=0x100, rcsActhd=0x1040)
+        out = self.verdict([stuck, stuck, stuck], msi=False)
+        self.assertIn("NEVER moved", out)
+        self.assertIn("the engine never executed the stamps", out)
+        self.assertIn("host vfio-msi count during the hang: did not move", out)
+
+    def test_verdict_no_context(self):
+        idle = dict(LIT, **AWAKE, **self.IRQ_ON)
+        self.assertIn("No context is running on RCS", self.verdict([idle, idle]))
+
+    def test_verdict_executed_master_masked(self):
+        a = dict(LIT, **AWAKE, **RCS_ON, rcsBcsIntrEn=0x01100110, rcsHead=0x40, rcsTail=0x100, rcsActhd=0x1040)
+        b = dict(a, rcsHead=0x100, rcsActhd=0x1100, gtIntrDw0=0x1)  # drained, pending, master clear
+        out = self.verdict([a, b, b])
+        self.assertIn("moved during the capture", out)
+        self.assertIn("master IRQ (0x190010 bit 31): CLEAR", out)
+        self.assertIn("masked at the master", out)
+
+    def test_verdict_pending_but_no_msi(self):
+        a = dict(LIT, **AWAKE, **RCS_ON, **self.IRQ_ON, rcsHead=0x40, rcsTail=0x100, rcsActhd=0x1040)
+        b = dict(a, rcsHead=0x100, rcsActhd=0x1100, gtIntrDw0=0x1)
+        self.assertIn("the interrupt is not reaching the MSI", self.verdict([a, b, b], msi=False))
+
+    def test_verdict_masked_at_engine(self):
+        a = dict(LIT, **AWAKE, **RCS_ON, gfxMstrIrq=0x80000000, rcsBcsIntrEn=0x01100110,
+                 rcsHead=0x40, rcsTail=0x100, rcsActhd=0x1040)
+        b = dict(a, rcsHead=0x100, rcsActhd=0x1100, rcsImr=0xffffffff)
+        out = self.verdict([a, b, b])
+        self.assertIn("RCS IMR masks: USER, PIPECTL_NOTIFY, CONTEXT_SWITCH", out)
+        self.assertIn("masked at the engine", out)
+
+    def test_verdict_executed_nothing_pending(self):
+        a = dict(LIT, **AWAKE, **RCS_ON, **self.IRQ_ON, rcsHead=0x40, rcsTail=0x100, rcsActhd=0x1040)
+        b = dict(a, rcsHead=0x100, rcsActhd=0x1100)
+        out = self.verdict([a, b, b], msi=False)
+        self.assertIn("RCS interrupt enable: PIPECTL_NOTIFY, CONTEXT_SWITCH", out)
+        self.assertIn("did not ask for an interrupt", out)
+        self.assertIn("so not serviced", out)
+
+    def test_main_accepts_msi_flag(self):
+        import contextlib
+        import io
+        import tempfile
+        st = dict(LIT, **AWAKE, **RCS_ON, **self.IRQ_ON, rcsHead=0x40, rcsTail=0x100, rcsActhd=0x1040)
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as f:
+            f.write("\n".join([line(0, 0, **st), line(20, 5000, **st)]))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            R.main(["x", f.name, "--msi", "flat"])
+        self.assertIn("host vfio-msi count during the hang: did not move", buf.getvalue())
+        pathlib.Path(f.name).unlink()
+
     def test_empty_log(self):
         self.assertIn("No ReimsGT samples", R.summary([])[0])
 

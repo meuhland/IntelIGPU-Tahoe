@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Decode the GT sampler's serial log (display-bringup/gt_sampler.hpp).
 
-Usage: python3 display-bringup/read_gt_serial.py <serial.log>
+Usage: python3 display-bringup/read_gt_serial.py <serial.log> [--msi rising|flat]
 
 Reads the host capture of VM 113's serial console, keeps the `ReimsGT` lines
 (other kernel output may be interleaved), and prints a timeline of register
-changes with decoded fields, then a summary of the final state. Read-only.
+changes with decoded fields, a summary of the final state, and a hang
+verdict for RCS (executed or not; where its interrupt stopped). --msi passes
+the host's /proc/interrupts vfio-msi count for 00:02.0 during the hang
+(2026-10-15 window: flat, count 0). Read-only.
 Field layouts follow Linux i915 (intel_engine_regs.h, gt/uc/intel_guc_reg.h).
 """
 import re
@@ -242,13 +245,93 @@ def stall_summary(found):
             "needs is not being scheduled (a spinning thread with preemption disabled?)."]
 
 
+# GT interrupt bits (i915 intel_gt_regs.h), per engine half: RCS in bits
+# 31:16 of GEN11_RENDER_COPY_INTR_ENABLE, BCS in 15:0; the same bit numbers
+# in the engine's RING_IMR (set = masked).
+GT_USER, GT_PIPECTL_NOTIFY, GT_CONTEXT_SWITCH = 1 << 0, 1 << 4, 1 << 8
+GT_BITS = ((GT_USER, "USER"), (GT_PIPECTL_NOTIFY, "PIPECTL_NOTIFY"), (GT_CONTEXT_SWITCH, "CONTEXT_SWITCH"))
+
+
+def bits_named(v):
+    return ", ".join(n for b, n in GT_BITS if v & b) or "none"
+
+
+def hang_verdict(samples, msi_count_rose=None):
+    """Answer: did RCS execute, and if so, where did its interrupt stop?
+
+    Three readings decide it (ACTHD movement, GT_INTR_DW0, master bit 31),
+    then the engine-level enable and IMR. msi_count_rose: the host's
+    /proc/interrupts vfio-msi count for 00:02.0 during the hang (True/False),
+    or None if not measured.
+    """
+    if not samples:
+        return []
+    s, first = samples[-1][2], samples[0][2]
+    acthd = [x[2]["rcsActhd"] for x in samples]
+    moved = len(set(acthd)) > 1
+    tail = [x[2] for x in samples[-3:]]
+    moving_now = len({x["rcsActhd"] for x in tail}) > 1
+    head, tl, ctl = s["rcsHead"] & HEAD_ADDR, s["rcsTail"] & TAIL_ADDR, s["rcsCtl"]
+    valid = bool(ctl & RING_VALID)
+    drained = valid and head == tl
+    dw0_end = s["gtIntrDw0"]
+    dw0_ever = any(x[2]["gtIntrDw0"] for x in samples)
+    master_end = bool(s["gfxMstrIrq"] & MSTR_IRQ_ENABLE)
+    master_ever = any(x[2]["gfxMstrIrq"] & MSTR_IRQ_ENABLE for x in samples)
+    rcs_enable = s["rcsBcsIntrEn"] >> 16
+    imr_masked = s["rcsImr"] & (GT_USER | GT_PIPECTL_NOTIFY | GT_CONTEXT_SWITCH)
+
+    out = ["Hang verdict (RCS):",
+           f"  ACTHD: 0x{first['rcsActhd']:08x} -> 0x{s['rcsActhd']:08x}, "
+           + ("moved during the capture" if moved else "NEVER moved")
+           + ("; still moving at the end" if moving_now else "; frozen at the end"),
+           f"  ring: {ring(s, 'rcs')}",
+           f"  GT_INTR_DW0: 0x{dw0_end:08x} at the end" + ("" if dw0_end or not dw0_ever else " (nonzero earlier)"),
+           f"  master IRQ (0x190010 bit 31): {'set' if master_end else 'CLEAR'} at the end"
+           + ("" if master_end == master_ever else " (set earlier)"),
+           f"  RCS interrupt enable: {bits_named(rcs_enable)}; RCS IMR masks: {bits_named(imr_masked)}"]
+    if msi_count_rose is not None:
+        out.append(f"  host vfio-msi count during the hang: {'rising' if msi_count_rose else 'did not move'}")
+
+    if not valid:
+        out.append("=> No context is running on RCS (ring not valid): the stamps were never submitted to the "
+                   "hardware, or the context never loaded. Never executed; CPU/submission side.")
+    elif not moved and not drained:
+        out.append("=> RCS has work queued and ACTHD never moved: the engine never executed the stamps. "
+                   "GPU side (context/ring/memory setup), not interrupts.")
+    elif moving_now and not drained:
+        out.append("=> RCS is still executing at the end of the capture (ACTHD moving, work queued): slow or "
+                   "looping, not stalled.")
+    elif dw0_end and not master_end:
+        out.append("=> Executed, and a GT interrupt is pending in GT_INTR_DW0, but the master enable is clear: "
+                   "the interrupt is masked at the master; nothing can raise the MSI.")
+    elif dw0_end and master_end:
+        out.append("=> Executed, a GT interrupt is pending and the master is enabled"
+                   + (", yet the MSI count did not move: the interrupt is not reaching the MSI."
+                      if msi_count_rose is False else ": check the host MSI count to see whether it reached the CPU."))
+    elif not rcs_enable & (GT_PIPECTL_NOTIFY | GT_USER) or imr_masked & (GT_PIPECTL_NOTIFY | GT_USER):
+        out.append("=> Executed (ring drained) with no interrupt pending, and the completion interrupt is not "
+                   "enabled at the engine (enable register or RING_IMR): masked at the engine.")
+    else:
+        out.append("=> Executed (ring drained), interrupts enabled at the engine and master, nothing pending: "
+                   "the stamps did not ask for an interrupt, or one was raised and already serviced"
+                   + (" (but the MSI count did not move, so not serviced)." if msi_count_rose is False else "."))
+    return out
+
+
 def main(argv):
-    if len(argv) != 2:
+    args = argv[1:]
+    msi = None
+    if len(args) == 3 and args[1] == "--msi" and args[2] in ("rising", "flat"):
+        msi = args[2] == "rising"
+        args = args[:1]
+    if len(args) != 1:
         sys.exit(__doc__.strip().splitlines()[2])
-    with open(argv[1], encoding="utf-8", errors="replace") as f:
+    with open(args[0], encoding="utf-8", errors="replace") as f:
         text = f.read()
     _, samples = parse(text)
-    print("\n".join(timeline(samples) + [""] + summary(samples) + stall_summary(stalls(text))))
+    print("\n".join(timeline(samples) + [""] + summary(samples) + stall_summary(stalls(text))
+                    + [""] + hang_verdict(samples, msi)))
 
 
 if __name__ == "__main__":

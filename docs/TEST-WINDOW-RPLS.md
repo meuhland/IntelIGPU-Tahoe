@@ -64,21 +64,34 @@ loaded it prints the GT registers to serial every 250 ms when they change
 register read. It is a new binary (it now also links `com.apple.kpi.mach`),
 so build it and pre-load it once before the window, as above.
 
+**Result 2026-10-15 evening:** the watch armed (`ReimsGTWatch: True`) but
+printed nothing to serial: it used `kprintf`, which on a release kernel only
+reaches serial with `debug=0x8`, otherwise only the (blocked) unified log.
+The host MSI check worked: MSI enabled, `vfio-msi[0]` count 0 throughout. Fixed
+to print with `IOLog` (PORT doc "Why the watch printed nothing"); **rebuild
+the hold probe** (new binary: pre-load once) before rerunning this section.
+
 1. Host: serial capture running (VM-PREP-RPLS.md 9b; only one reader on the
    socket).
 2. Guest: load the hold probe, `read_gt_reset.py` (expect the first row
-   above and `ReimsGTWatch: True`), then `igpu-start`. On serial, a
-   `ReimsGT seq ms …` header and sample lines appear before Apple's
-   `[IGPU]` lines.
+   above and `ReimsGTWatch: True`). **Check the capture now**: a
+   `ReimsGT seq ms …` header and a first `ReimsGT 1 …` sample must appear
+   within a second of the load, before `igpu-start`. If they do not, stop:
+   the watch output is still not reaching serial (then add `debug=0x8` to
+   the boot args as a fallback, which enables `kprintf` too). Then
+   `igpu-start`.
 3. When `igpu-start` hangs, leave it for 60 s so the watch records the
    steady state, then `Ctrl-C` and save the capture. Do not unload the probe
    if the log shows a `ReimsGT stall … reading` line (the unload would touch
    the same stuck BAR); reboot the guest instead.
 4. Decode, on any machine with the repo or a copy of the script:
-   `python3 display-bringup/read_gt_serial.py <capture>`. The summary's last
-   lines map to the PORT doc's "Reading the hang" table: a stuck read, a
-   starved sampler, a pending GT interrupt nobody serviced, an engine with
-   queued work and a frozen `ACTHD`, or a ring that never received work.
+   `python3 display-bringup/read_gt_serial.py <capture> --msi flat` (or
+   `--msi rising` if the host count moved this time). It ends with a "Hang
+   verdict (RCS)": `ACTHD` moved or not, `GT_INTR_DW0`, the master IRQ bit,
+   the RCS interrupt enable and `RING_IMR`, and one conclusion line (never
+   submitted / never executed / masked at the master / raised but not
+   reaching the MSI / masked at the engine / no interrupt requested). The
+   summary above it still covers a stuck read or a starved sampler.
 
 Also record the VM's vCPU count (`qm config 113 | grep -E 'cores|sockets'`);
 it matters if the watch reports `starved`.

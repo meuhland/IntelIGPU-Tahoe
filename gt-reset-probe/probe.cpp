@@ -28,7 +28,7 @@
 // igpu-start and leave it loaded. While held it also runs the GT watch
 // (gt_watch.hpp): a sampler thread reads the ReimsGTSampler registers every
 // 250 ms and a reporter thread, which never touches MMIO, prints them over
-// serial (kprintf) and reports a sampler stuck in a register read. Kernel
+// serial (IOLog) and reports a sampler stuck in a register read. Kernel
 // threads, not an IOKit work loop, so a wedged accelerator start cannot hold
 // them up. Decode the capture with display-bringup/read_gt_serial.py.
 //
@@ -93,7 +93,7 @@ static void watchReporter(void*arg,wait_result_t){
  ReimsGTWatch::Reporter rep;
  const uint64_t t0=uptimeMS();
  char line[ReimsGTSampler::lineBuffer];
- ReimsGTSampler::header(line,sizeof(line));kprintf("%s",line);
+ ReimsGTSampler::header(line,sizeof(line));IOLog("%s",line);
  while(!__atomic_load_n(&w->stop,__ATOMIC_ACQUIRE)){
   IOSleep(250);
   const uint32_t seq=__atomic_load_n(&w->shared.seq,__ATOMIC_ACQUIRE);
@@ -101,9 +101,9 @@ static void watchReporter(void*arg,wait_result_t){
   const ReimsGTSampler::Sample s=w->shared.buf[seq&1];
   const uint64_t now=uptimeMS()-t0;
   const unsigned out=rep.tick(now,seq,reading,s);
-  if(out&ReimsGTWatch::sample){ReimsGTSampler::format(line,sizeof(line),seq,now,s);kprintf("%s",line);}
+  if(out&ReimsGTWatch::sample){ReimsGTSampler::format(line,sizeof(line),seq,now,s);IOLog("%s",line);}
   if(out&ReimsGTWatch::stall){
-   ReimsGTWatch::formatStall(line,sizeof(line),seq,now,reading,rep.stuckMS(now));kprintf("%s",line);
+   ReimsGTWatch::formatStall(line,sizeof(line),seq,now,reading,rep.stuckMS(now));IOLog("%s",line);
   }
  }
  watchExit(w);
@@ -138,7 +138,7 @@ class ReimsGTResetProbe:public IOService {
   __atomic_store_n(&watch->stop,true,__ATOMIC_RELEASE);
   for(int i=0;i<300&&__atomic_load_n(&watch->exited,__ATOMIC_ACQUIRE)<2;++i)IOSleep(10);
   if(__atomic_load_n(&watch->exited,__ATOMIC_ACQUIRE)<2){
-   kprintf("ReimsGT watch: sampler did not exit (stuck in a register read); leaving BAR0 mapped and the hold set\n");
+   IOLog("ReimsGT watch: sampler did not exit (stuck in a register read); leaving BAR0 mapped and the hold set\n");
    watch=nullptr;  // leaked on purpose: a stuck thread still references it
    return false;
   }

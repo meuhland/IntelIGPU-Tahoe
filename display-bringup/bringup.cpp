@@ -66,7 +66,7 @@ class ReimsDisplayBringup:public IOService {
  void refuse(const char*why){setProperty("ReimsBringupError",why);}
 #if defined(REIMS_GT_SAMPLER)
  // Read-only GT watch (gt_sampler.hpp): every 250 ms while loaded, print the
- // sampled registers with kprintf (serial console) when they change, plus a
+ // sampled registers with IOLog (serial console) when they change, plus a
  // heartbeat. Its own work loop, so a wedged accelerator gate or IOKit lock
  // does not stop it; it reads through the BAR0 mapping and never writes.
  IOWorkLoop*samplerLoop=nullptr;IOTimerEventSource*samplerTimer=nullptr;
@@ -80,7 +80,7 @@ class ReimsDisplayBringup:public IOService {
   if(self->samplerState.shouldPrint(sample,ReimsGTSampler::Policy{})){
    char line[ReimsGTSampler::lineBuffer];
    ReimsGTSampler::format(line,sizeof(line),self->samplerSeq,(uptimeUS()-self->samplerStartUS)/1000,sample);
-   kprintf("%s",line);
+   IOLog("%s",line);
   }
   ++self->samplerSeq;timer->setTimeoutMS(250);
  }
@@ -91,7 +91,7 @@ class ReimsDisplayBringup:public IOService {
   if(!samplerTimer||samplerLoop->addEventSource(samplerTimer)!=kIOReturnSuccess){
    OSSafeReleaseNULL(samplerTimer);OSSafeReleaseNULL(samplerLoop);setProperty("ReimsGTSampler",false);return;
   }
-  char line[ReimsGTSampler::lineBuffer];ReimsGTSampler::header(line,sizeof(line));kprintf("%s",line);
+  char line[ReimsGTSampler::lineBuffer];ReimsGTSampler::header(line,sizeof(line));IOLog("%s",line);
   samplerStartUS=uptimeUS();samplerTimer->setTimeoutMS(250);setProperty("ReimsGTSampler",true);
  }
  void disarmSampler(){

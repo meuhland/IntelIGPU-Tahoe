@@ -941,6 +941,39 @@ watch meant to tell these apart produced no `ReimsGT` output on serial in the
 window capture, although the guest published `ReimsGTWatch: True`; that is
 open. Evidence: `~/work/igpu-notes/window-20261016-hold-watch.txt`.
 
+**Why the watch printed nothing (offline, 2026-10-15).** It printed with
+`kprintf`, and on a release kernel `kprintf` only reaches the serial port when
+the `debug` boot-arg has `DB_KPRT` (`0x8`). Without it `disable_serial_output`
+stays true and `kprintf` hands the text to `os_log` alone (xnu
+`pexpert/i386/pe_kprintf.c` `PE_init_kprintf` and `kprintf`;
+`osfmk/kern/debug.h` `DB_KPRT 0x8`), and `os_log` is exactly what blocks
+during the hang. Apple's `[IGPU]` lines reach the capture because Apple also
+calls `IOLog`, which writes to the console unless
+`disable_iolog_serial_output` is set (default false; `iokit/Kernel/IOLib.cpp`
+`_IOLogv`), and `serial=3` puts the console on the serial port. The bring-up
+sampler had the same flaw, so "the sampler never printed" on 2026-10-14 was
+likely this too. Fixed: the watch and the bring-up sampler now print with
+`IOLog`. The threads themselves were probably running (`ReimsGTWatch: True`
+means both started); they printed into the unified log only.
+
+**Reading the next capture.** `read_gt_serial.py <capture> --msi flat` now
+ends with a hang verdict for RCS that answers the three questions directly:
+did `ACTHD` move, is anything pending in `GT_INTR_DW0`, is bit 31 of
+`GEN11_GFX_MSTR_IRQ` set. It then checks the RCS half of
+`GEN11_RENDER_COPY_INTR_ENABLE` and RCS `RING_IMR`, and, with the measured flat
+MSI count, picks one of:
+
+- no context on RCS (ring not valid) → never submitted (CPU/submission side);
+- work queued and `ACTHD` never moved → never executed (GPU side: context,
+  ring or memory setup);
+- executed, `GT_INTR_DW0` pending, master clear → masked at the master;
+- executed, pending, master set, MSI flat → raised in the GT but not
+  reaching the MSI;
+- executed, nothing pending, completion bit not enabled or masked in IMR →
+  masked at the engine;
+- executed, enabled, nothing pending, MSI flat → the stamps did not request
+  an interrupt.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.
