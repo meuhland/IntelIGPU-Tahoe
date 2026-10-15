@@ -10,8 +10,10 @@ start on `a780`").
 As written, the handoff assumes this order:
 
 1. `display-bringup` (stage 3) lights pipe A on HDMI TC1 and points plane 1A
-   at its own framebuffer, which it maps by writing GGTT entries at GGTT
-   `0x01000000` (8100 pages). The kext stays loaded and owns those pages.
+   at its own framebuffer, which it maps by writing GGTT entries for 8100
+   pages (at `0x01000000` until 2026-10-15; now the first unused range from
+   16 MiB up, `ReimsBringupFramebufferGGTT`). The kext stays loaded and owns
+   those pages.
 2. `igpu-start` → `PrepareRuntime` starts Apple's accelerator, hidden.
 3. `CommitDisplay` → DesktopLink's native framebuffer finds plane 1A still
    lit, takes its mode and aperture (`rpls_takeover.hpp`) and starts flipping
@@ -115,7 +117,8 @@ The sampler also logs the GGTT PTE of the bring-up's first framebuffer page
 (`fbPteLo`/`fbPteHi`, BAR0 `0x800000` + (`0x01000000` >> 12) × 8 =
 `0x808000`), which makes the first row certain: if it changes during
 `PrepareRuntime`, the accelerator reused the range, and `read_gt_serial.py`
-says so in its summary.
+says so in its summary. That watch is fixed at GGTT `0x01000000`, so it only
+covers the bring-up's page when `ReimsBringupFramebufferGGTT` is `0x1000000`.
 
 ## Recommendation
 

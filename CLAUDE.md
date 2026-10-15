@@ -232,8 +232,9 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
 - Handoff after the blanking: options A–D in docs/HANDOFF-OPTIONS-RPLS.md
   (recommendation: fix the hang, then the native framebuffer lights the
   display itself; the next window's sampler picks whether an interim
-  keep-the-order fix is worth it). The sampler logs the bring-up's first
-  framebuffer GGTT PTE (`0x808000`) for that.
+  keep-the-order fix is worth it). The sampler logs the GGTT PTE at
+  `0x808000` (GGTT `0x01000000`), the bring-up's first page only when it lands
+  there.
 - Option C started (code, opt-in): `desktop-link/rpls_light.hpp` lets the
   native framebuffer light the pipe itself via the stage 2/3 sequence over its
   BAR0 and a shared black framebuffer (`display-bringup/fb_memory.hpp`).
@@ -242,6 +243,15 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   bring-up kext now shares `fb_memory.hpp` and `hdmi_scanout.hpp` refuses a
   GGTT range already in use. Host tests: test_fb_memory, updated
   test_hdmi_scanout. Not run on hardware.
+- Bring-up GGTT range (code, 2026-10-15, not run on hardware): stage 3 no
+  longer uses a fixed GGTT `0x01000000`, which was already taken on the
+  2026-10-14 boots (owner unknown; likely entries an earlier run left, since
+  `stop()` never restored them). `findUnusedGgtt` (hdmi_scanout.hpp) picks the
+  first unused 256 KiB-aligned range (all 8100 entries identical) from 16 MiB
+  up inside GMADR; `restoreGgtt` puts the original entry back on unload and on
+  any failed run. Option C (`rpls_light.hpp`) uses the same search. Published
+  as `ReimsBringupFramebufferGGTT`/`ReimsBringupGMADRLength`. Host-tested; the
+  default rpls `intel_framebuffer.o` `__text` is unchanged.
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

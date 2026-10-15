@@ -33,8 +33,10 @@
 // it is a dry run: reads only, and publishes the writes it would make.
 // Refuses unless the IGD is isolated (registry device-id FFFF), carries no
 // driver other than the boot IONDRVFramebuffer, and decodes memory.
-// Unloading disables the plane before freeing its framebuffer; the HDMI link
-// stays up showing black.
+// Stage 3 scans out from the first unused GGTT range from 16 MiB up inside
+// GMADR (published as ReimsBringupFramebufferGGTT). Unloading disables the
+// plane, restores that range's GGTT entries, then frees the framebuffer; the
+// HDMI link stays up showing black.
 #if defined(REIMS_BRINGUP_EXECUTE)
 static constexpr bool kExecute=true;
 #else
@@ -59,6 +61,8 @@ struct BarIO {
 class ReimsDisplayBringup:public IOService {
  OSDeclareDefaultStructors(ReimsDisplayBringup)
  IOMemoryMap*bar=nullptr;IOBufferMemoryDescriptor*fbMemory=nullptr;bool planeOn=false;
+ // The framebuffer's GGTT range and the entry it held before (restored on stop).
+ uint32_t ggttOffset=0;uint64_t ggttPrior=0;bool ggttWritten=false;
  void refuse(const char*why){setProperty("ReimsBringupError",why);}
 #if defined(REIMS_GT_SAMPLER)
  // Read-only GT watch (gt_sampler.hpp): every 250 ms while loaded, print the
@@ -122,11 +126,23 @@ class ReimsDisplayBringup:public IOService {
   // Stage 3 writes GGTT entries in the upper half of the 16 MiB BAR0.
   constexpr IOByteCount barNeeded=REIMS_BRINGUP_STAGE==3?0x1000000:0x200000;
   bar=pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
+#if REIMS_BRINGUP_STAGE==3
+  // The native framebuffer later reaches the plane's pages through GMADR
+  // (BAR2), so the framebuffer's GGTT range must lie inside it.
+  uint64_t gmadrLength=0;
+  if(auto*gmadr=pci->getDeviceMemoryWithRegister(kIOPCIConfigBaseAddress2))gmadrLength=gmadr->getLength();
+#endif
   entry->release();
   if(!bar||bar->getLength()<barNeeded){OSSafeReleaseNULL(bar);refuse("BAR0 map failed");return false;}
   BarIO io{bar->getVirtualAddress()};
 #if REIMS_BRINGUP_STAGE==3
-  constexpr uint32_t pages=ReimsBringup::R4::pages,ggtt=0x01000000;
+  constexpr uint32_t pages=ReimsBringup::R4::pages;
+  // Use the first unused GGTT range from 16 MiB up inside GMADR. The fixed
+  // 0x01000000 used until 2026-10-14 was already taken on the boots that day
+  // (possibly by entries an earlier run left: stop() did not restore them).
+  setProperty("ReimsBringupGMADRLength",gmadrLength,64);
+  const uint32_t ggtt=ReimsBringup::findUnusedGgtt(io,ReimsBringup::R4::firstGgttCandidate,gmadrLength,pages);
+  if(!ggtt){refuse("no unused GGTT range inside the GMADR aperture");return false;}
   auto*dma=static_cast<uint64_t*>(IOMalloc(pages*sizeof(uint64_t)));
   if(!dma){refuse("out of memory");return false;}
   fbMemory=ReimsBringup::makeFramebuffer(dma,pages,ReimsBringup::Fill::TestPattern);
@@ -137,7 +153,11 @@ class ReimsDisplayBringup:public IOService {
   const auto result=init.runScanout(ReimsBringup::kUhd30,{ggtt,pages,dma});
   IOFree(dma,pages*sizeof(uint64_t));
   planeOn=kExecute&&(io.read(ReimsBringup::R4::planeCtl)&(1U<<31));
-  if(!planeOn){fbMemory->complete();OSSafeReleaseNULL(fbMemory);}
+  if(!planeOn){
+   // Nothing scans out: put the GGTT entries back before freeing the pages.
+   init.restoreGgtt({ggtt,pages,nullptr});
+   fbMemory->complete();OSSafeReleaseNULL(fbMemory);
+  }else{ggttOffset=ggtt;ggttPrior=init.ggttPrior;ggttWritten=init.ggttWritten;}
   setProperty("ReimsBringupPlaneOn",planeOn);
   // Read the monitor's EDID over GMBUS (VBT DDC pin 2 = HDMI-B, which is GMBUS
   // pin 9 on ADL-S; the 2026-10-13 run used pin 2 and timed out). This
@@ -191,6 +211,10 @@ public:
    BarIO io{bar->getVirtualAddress()};
    io.write(ReimsBringup::R4::planeCtl,0);io.write(ReimsBringup::R4::planeSurf,0);
    IOSleep(100);planeOn=false;
+   // The plane is off: point the range back at its original entry, so no GGTT
+   // entry is left pointing at the pages freed below.
+   if(ggttWritten)ReimsBringup::restoreGgtt(io,ggttOffset,ReimsBringup::R4::pages,ggttPrior);
+   ggttWritten=false;
   }
 #endif
   if(fbMemory){fbMemory->complete();OSSafeReleaseNULL(fbMemory);}

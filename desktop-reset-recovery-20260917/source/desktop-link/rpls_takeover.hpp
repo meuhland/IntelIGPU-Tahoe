@@ -31,7 +31,7 @@ inline Result check(const Plane&p,uint64_t apertureLength){
  r.pitchBytes=units*64;
  if(p.stride!=units||r.pitchBytes<r.width*4){r.status=Status::Stride;return r;}
  // 4 KiB GGTT address, no flag bits (host i915 scanned linear from
- // 0x00aa4000; the bring-up uses 0x01000000).
+ // 0x00aa4000; the bring-up uses the first unused range from 0x01000000).
  r.surface=p.surf&0xfffff000U;
  if(!r.surface||p.surf!=r.surface){r.status=Status::Surface;return r;}
  if((p.surfLive&0xfffff000U)!=r.surface){r.status=Status::NotLive;return r;}

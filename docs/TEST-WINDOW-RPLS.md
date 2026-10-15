@@ -61,20 +61,25 @@ needs `Ctrl-C` (that stops the `igpu-start` parent; its worker and the wedged
 accelerator stay) and a guest reboot. Roll back the snapshot only if the disk
 state is in doubt; a rollback also reverts any kexts installed since it.
 
-**Stage 3 currently refuses (since 2026-10-14).** The bring-up maps its
-framebuffer at GGTT `0x01000000`, and `hdmi_scanout.hpp` now refuses a GGTT
-range already in use. On these boots that range holds macOS's own console
-framebuffer (`IONDRVFramebuffer`), so steps 2–3 stop at the first check
-(`Scanout FAIL 0x808008`) before programming anything. Until the bring-up uses
-a free GGTT range, skip steps 2–3. A stage-2-only execute build
-(`REIMS_BRINGUP_STAGE=2 REIMS_BRINGUP_EXECUTE=1`) still runs, but it did not
-change the accelerator's fuse reads or the hang (2026-10-14).
+**Stage-3 GGTT range.** Until 2026-10-15 the bring-up used a fixed GGTT
+`0x01000000`. On the 2026-10-14 boots that range already held a mapping (its
+owner was not identified; a likely one is entries an earlier stage-3 run left
+behind, since unloading did not restore them and a guest reboot does not
+clear the GGTT), so the in-use guard stopped steps 2–3 at their first check
+(`Scanout FAIL 0x808008`). The bring-up now uses the first unused 256 KiB-aligned
+range from 16 MiB up inside GMADR (BAR2), and restores the range's entries on
+unload and on any failed run. `read_bringup.py` prints the chosen
+`ReimsBringupFramebufferGGTT` and `ReimsBringupGMADRLength`; it refuses with
+`no unused GGTT range inside the GMADR aperture` if nothing fits. These are
+new binaries (first load costs a reboot each). The sampler's `fbPteLo`/`fbPteHi` watch stays fixed at BAR0 `0x808000` (GGTT `0x01000000`), so it follows the bring-up's first page only when `ReimsBringupFramebufferGGTT` is `0x1000000`.
+A stage-2-only execute build (`REIMS_BRINGUP_STAGE=2 REIMS_BRINGUP_EXECUTE=1`)
+did not change the accelerator's fuse reads or the hang (2026-10-14).
 
 | # | Step | Expect | Captures |
 |---|---|---|---|
 | 1 | Start VM 113 (hookscript hands the IGD to vfio-pci) | Boots; `GFX0` `device-id` `ffff0000`, only `IONDRVFramebuffer` | `ioreg -r -n GFX0 -l` |
 | 2 | Load the stage-3 dry run, `read_bringup.py`, unload | `Planned`, 0 blocked writes | read_bringup output |
-| 3 | Load the stage-3 execute build and leave it loaded | `OK`; test pattern at 3840x2160@30 on the HDMI monitor; `PLANE_SURFLIVE` = `0x01000000` | read_bringup output, photo of the monitor |
+| 3 | Load the stage-3 execute build and leave it loaded | `OK`; test pattern at 3840x2160@30 on the HDMI monitor; `PLANE_SURFLIVE` = `ReimsBringupFramebufferGGTT` | read_bringup output, photo of the monitor |
 | 4 | `sudo ./igpu-start` | Prepares: accelerator starts hidden on `a780`, DesktopLink `RCSReady` = true, state `prepared`; then stops at the commit because the takeover is refused | full console output |
 | 5 | Evidence | see below | |
 

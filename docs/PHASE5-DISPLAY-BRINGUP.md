@@ -254,11 +254,15 @@ plane state are validated before stage 2 writes anything.
 | Plane arm (`icl_plane_update_arm`) | `PLANE_CTL` `0x84000000` then `PLANE_SURF` = GGTT offset | `0x84000000` / `0x00aa4000` |
 | Verify | `PLANE_SURFLIVE` = offset within 100 ms; `GEN8_DE_PIPE_IIR(A)` before/after (bit 31 underrun, informational) | — |
 
-The kext allocates the framebuffer (8100 pages below 512 GiB, GGTT offset
-16 MiB), fills and `clflush`es it (display reads are not snooped) and uses
-guest-physical page addresses as DMA addresses (no virtual IOMMU). It keeps
-the pages while the plane is on; unloading disables the plane, waits 100 ms
-and frees them, leaving the link up on black. `test_hdmi_scanout.cpp` checks
+The kext allocates the framebuffer (8100 pages below 512 GiB), fills and
+`clflush`es it (display reads are not snooped) and uses guest-physical page
+addresses as DMA addresses (no virtual IOMMU). Its GGTT range is the first
+unused one (all 8100 entries identical: empty or one scratch page) at a 256
+KiB boundary from 16 MiB up inside GMADR (BAR2), found by `findUnusedGgtt`;
+until 2026-10-15 it was a fixed 16 MiB, which was already taken on the
+2026-10-14 boots. It keeps the pages while the plane is on; unloading disables
+the plane, waits 100 ms, restores the range's original GGTT entry and frees
+the pages, leaving the link up on black. `test_hdmi_scanout.cpp` checks
 the GGTT entries and host plane values, the `PLANE_CTL`/`PLANE_SURF` order,
 refusals with no register write, and timeouts.
 

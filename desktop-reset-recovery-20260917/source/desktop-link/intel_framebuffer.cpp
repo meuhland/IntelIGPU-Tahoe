@@ -341,7 +341,7 @@ public:
   // Option C: the accelerator blanked the bring-up's pipe, so light it here
   // (our own black framebuffer) and re-read the plane we just programmed.
   if(lit.status!=Status::OK){
-   const auto r=ReimsLight::light(registers->getVirtualAddress(),&ownFramebuffer);
+   const auto r=ReimsLight::light(registers->getVirtualAddress(),gmadr->getLength(),&ownFramebuffer);
    setProperty("ReimsSelfLightResult",uint64_t(r),32);
    if(r!=ReimsBringup::Result::OK)return false;
    const Plane relit{reg(planeCtl),reg(planeStride),reg(planePos),reg(planeSize),

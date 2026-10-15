@@ -34,22 +34,30 @@ struct BarIO {
  uint64_t nowUS(){uint64_t a=0,ns=0;clock_get_uptime(&a);absolutetime_to_nanoseconds(a,&ns);return ns/1000;}
 };
 
-// Lights pipe A on HDMI TC1 at 3840x2160@30 scanning a black framebuffer at
-// GGTT 0x01000000. On success *fb owns the wired pages (freed by the caller
-// once no plane can fetch them) and the plane is live. Returns OK/Planned from
-// the scanout, or an error; frees the framebuffer on any failure.
-inline ReimsBringup::Result light(IOVirtualAddress bar,IOBufferMemoryDescriptor**fb){
+// Lights pipe A on HDMI TC1 at 3840x2160@30 scanning a black framebuffer in
+// the first unused GGTT range from 16 MiB up below gmadrLength (BAR2). On
+// success *fb owns the wired pages (freed by the caller once no plane can
+// fetch them; their GGTT entries stay mapped) and the plane is live. Returns
+// OK/Planned from the scanout, or an error; on any failure the GGTT entries
+// are restored and the framebuffer freed.
+inline ReimsBringup::Result light(IOVirtualAddress bar,uint64_t gmadrLength,IOBufferMemoryDescriptor**fb){
  *fb=nullptr;
- constexpr uint32_t pages=ReimsBringup::R4::pages,ggtt=0x01000000;
+ constexpr uint32_t pages=ReimsBringup::R4::pages;
+ BarIO io{bar};
+ const uint32_t ggtt=ReimsBringup::findUnusedGgtt(io,ReimsBringup::R4::firstGgttCandidate,gmadrLength,pages);
+ if(!ggtt)return ReimsBringup::Result::PreconditionFailed;
  auto*dma=static_cast<uint64_t*>(IOMalloc(pages*sizeof(uint64_t)));
  if(!dma)return ReimsBringup::Result::PreconditionFailed;
  auto*mem=ReimsBringup::makeFramebuffer(dma,pages,ReimsBringup::Fill::Black);
  if(!mem){IOFree(dma,pages*sizeof(uint64_t));return ReimsBringup::Result::PreconditionFailed;}
- BarIO io{bar};
  ReimsBringup::HdmiScanout<BarIO> seq(io,true);
  const auto r=seq.runScanout(ReimsBringup::kUhd30,{ggtt,pages,dma});
  IOFree(dma,pages*sizeof(uint64_t));
- if(r!=ReimsBringup::Result::OK){mem->complete();mem->release();return r;}
+ if(r!=ReimsBringup::Result::OK){
+  if(io.read(ReimsBringup::R4::planeCtl)&(1U<<31)){seq.disablePlane();IOSleep(100);}
+  seq.restoreGgtt({ggtt,pages,nullptr});
+  mem->complete();mem->release();return r;
+ }
  *fb=mem;return r;
 }
 }

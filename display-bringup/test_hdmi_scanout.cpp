@@ -68,7 +68,32 @@ int main(){
   CHECK(s.runScanout(kUhd30,fb)==Result::Timeout);}
  {Model m;m.dbufAck=false;HdmiScanout<Model> s(m,true);       // stage 2 S1 already fails
   CHECK(s.runScanout(kUhd30,fb)==Result::Timeout);CHECK(m.writes64==0);}
+ // GGTT range search: the first unused 256 KiB-aligned range below the limit.
+ const uint64_t span=uint64_t(R4::pages)*4096,big=0x10000000;
+ {Model m;CHECK(findUnusedGgtt(m,R4::firstGgttCandidate,big,R4::pages)==0x01000000);}  // empty: old default
+ {Model m;m.r[0x808000+100*8]=0x45678001;                    // one foreign entry 100 pages in
+  CHECK(findUnusedGgtt(m,R4::firstGgttCandidate,big,R4::pages)==0x01080000);}
+ {Model m;                                                   // a mapped surface at 0x01000000
+  for(uint32_t i=0;i<R4::pages;++i)m.r[0x808000+i*8]=0x10000001+i*0x1000;
+  const uint32_t g=findUnusedGgtt(m,R4::firstGgttCandidate,big,R4::pages);
+  CHECK(g==0x02fc0000&&ggttRangeInUse(m,g,R4::pages)==0);}   // first boundary past its 8100 pages
+ {Model m;m.r[0x808000+100*8]=0x45678001;                    // no room left below the limit
+  CHECK(findUnusedGgtt(m,R4::firstGgttCandidate,0x01000000+span+0x40000,R4::pages)==0);}
+ {Model m;CHECK(findUnusedGgtt(m,R4::firstGgttCandidate,0x01000000+span,R4::pages)==0x01000000);}   // exact fit
+ {Model m;CHECK(findUnusedGgtt(m,R4::firstGgttCandidate,0x01000000+span-1,R4::pages)==0);}          // one byte short
+ {Model m;CHECK(findUnusedGgtt(m,0x01001000,big,R4::pages)==0x01040000);}   // start rounds up to 256 KiB
+ {Model m;CHECK(findUnusedGgtt(m,0xfffc0000,~0ULL,R4::pages)==0);}         // capped at the 4 GiB GGTT
+ // Restore: a run over a scratch-mapped range, plane off, entries back.
+ {Model m;for(uint32_t i=0;i<R4::pages;++i){m.r[0x808000+i*8]=0x00abc001;m.r[0x808000+i*8+4]=0;}
+  HdmiScanout<Model> s(m,true);CHECK(s.runScanout(kUhd30,fb)==Result::OK);
+  CHECK(s.ggttWritten&&s.ggttPrior==0x00abc001ULL);
+  s.disablePlane();s.restoreGgtt(fb);
+  CHECK(!s.ggttWritten&&ggttRangeInUse(m,fb.ggttOffset,R4::pages)==0&&m.read(0x808000)==0x00abc001);
+  CHECK(findUnusedGgtt(m,R4::firstGgttCandidate,big,R4::pages)==fb.ggttOffset);}  // reusable next run
+ {Model m;HdmiScanout<Model> s(m,false);                     // dry run: nothing to restore
+  CHECK(s.runScanout(kUhd30,fb)==Result::Planned);s.restoreGgtt(fb);CHECK(m.writes64==0);}
+ CHECK(refused({0xfffc0000,R4::pages,dma.data()},0));          // would run past the 4 GiB GGTT
  if(failures){printf("%d failure(s)\n",failures);return 1;}
- printf("PASS: RPL-S plane 1A scanout over HDMI TC1 (GGTT, host plane values, refusals)\n");
+ printf("PASS: RPL-S plane 1A scanout over HDMI TC1 (GGTT search/restore, host plane values, refusals)\n");
  return 0;
 }

@@ -37,6 +37,47 @@ constexpr uint32_t wm[8]={0x8000401f,0x8000c05e,0x8001409c,0x8001409c,
 constexpr uint32_t wmTrans=0x8000002d;
 constexpr uint32_t bufCfg=0x07ba0000;                 // DDB blocks 0-1978 (i915_ddb_info)
 constexpr uint32_t pages=3840*4*2160/4096;            // 8100
+constexpr uint32_t ggttAlign=0x40000;                 // plane surface: 256 KiB
+constexpr uint64_t ggttSpan=1ULL<<32;                 // 8 MiB of entries x 4 KiB
+constexpr uint32_t firstGgttCandidate=0x01000000;     // search start: 16 MiB
+}
+
+// A GGTT range is unused when all its entries are identical: all empty, or all
+// on one scratch page. Anything else is another GGTT user's mapping (or stale
+// entries an earlier run left behind) and must not be overwritten. Returns the
+// BAR0 offset of the first entry that differs from the range's first entry,
+// or 0 when the range is unused.
+template<class IO> uint32_t ggttRangeInUse(IO&io,uint32_t ggttOffset,uint32_t pages){
+ const uint32_t pte0=R4::ggttBase+(ggttOffset>>12)*8;
+ const uint32_t lo=io.read(pte0),hi=io.read(pte0+4);
+ for(uint32_t i=1;i<pages;++i){
+  const uint32_t a=pte0+i*8;
+  if(io.read(a)!=lo||io.read(a+4)!=hi)return a;
+ }
+ return 0;
+}
+
+// The first 256 KiB-aligned GGTT offset in [first, limit) whose `pages`
+// entries are unused, or 0 when there is none. Callers pass the GMADR (BAR2)
+// length as the limit so the CPU can still map the range. A mismatch at entry
+// k rules out every aligned start below k (each would contain entries k-1 and
+// k, which differ), so the scan resumes at k rounded up: one pass.
+template<class IO> uint32_t findUnusedGgtt(IO&io,uint32_t first,uint64_t limit,uint32_t pages){
+ if(limit>R4::ggttSpan)limit=R4::ggttSpan;
+ const uint64_t span=uint64_t(pages)*4096,mask=R4::ggttAlign-1;
+ for(uint64_t start=(uint64_t(first)+mask)&~mask;pages&&start+span<=limit;){
+  const uint32_t bad=ggttRangeInUse(io,uint32_t(start),pages);
+  if(!bad)return uint32_t(start);
+  start=((uint64_t(bad-R4::ggttBase)/8*4096)+mask)&~mask;
+ }
+ return 0;
+}
+
+// Point `pages` entries from ggttOffset back at `value` (the range's original,
+// uniform entry). Only once no plane can fetch the range.
+template<class IO> void restoreGgtt(IO&io,uint32_t ggttOffset,uint32_t pages,uint64_t value){
+ const uint32_t first=R4::ggttBase+(ggttOffset>>12)*8;
+ for(uint32_t i=0;i<pages;++i)io.write64(first+i*8,value);
 }
 
 template<class IO> class HdmiScanout:public HdmiOutput<IO> {
@@ -44,25 +85,25 @@ template<class IO> class HdmiScanout:public HdmiOutput<IO> {
  using CoreInit<IO>::rmw;using CoreInit<IO>::write;using CoreInit<IO>::fail;using CoreInit<IO>::waitFor;
 public:
  using HdmiOutput<IO>::HdmiOutput;
+ uint64_t ggttPrior=0;      // the range's uniform entry before runScanout
+ bool ggttWritten=false;    // runScanout replaced the range's entries
  Result runScanout(const HdmiMode&m,const Framebuffer&fb){
   // Validate the request and the plane before anything is written.
   record(Step::Scanout,Action::Check,R4::planeSurf,fb.ggttOffset,fb.pages);
-  if(m.hActive!=3840||m.vActive!=2160||fb.pages!=R4::pages||(fb.ggttOffset&0x3ffff)||!fb.dma)
+  if(m.hActive!=3840||m.vActive!=2160||fb.pages!=R4::pages||(fb.ggttOffset&(R4::ggttAlign-1))||!fb.dma||
+     uint64_t(fb.ggttOffset)+uint64_t(fb.pages)*4096>R4::ggttSpan)
    return fail(Step::Scanout,Result::PreconditionFailed,R4::planeSurf,fb.ggttOffset);
   if(io.read(R4::planeCtl)&(1U<<31))
    return fail(Step::Scanout,Result::PreconditionFailed,R4::planeCtl,io.read(R4::planeCtl));
   for(uint32_t i=0;i<fb.pages;++i)
    if(!fb.dma[i]||(fb.dma[i]&0xfff))return fail(Step::Scanout,Result::PreconditionFailed,i,uint32_t(fb.dma[i]));
-  // The GGTT range must be unused: every entry identical (all empty, or all on
-  // one scratch page). Anything else belongs to another GGTT user, such as
-  // Apple's accelerator after PrepareRuntime, and must not be overwritten.
+  // The GGTT range must be unused (ggttRangeInUse): anything else belongs to
+  // another GGTT user, such as Apple's accelerator after PrepareRuntime.
+  if(const uint32_t a=ggttRangeInUse(io,fb.ggttOffset,fb.pages))
+   return fail(Step::Scanout,Result::PreconditionFailed,a,io.read(a));
   {
    const uint32_t pte0=R4::ggttBase+(fb.ggttOffset>>12)*8;
-   const uint32_t lo=io.read(pte0),hi=io.read(pte0+4);
-   for(uint32_t i=1;i<fb.pages;++i){
-    const uint32_t a=pte0+i*8;
-    if(io.read(a)!=lo||io.read(a+4)!=hi)return fail(Step::Scanout,Result::PreconditionFailed,a,io.read(a));
-   }
+   ggttPrior=uint64_t(io.read(pte0+4))<<32|io.read(pte0);
   }
   Result r=HdmiOutput<IO>::runOutput(m);
   if(r!=(execute?Result::OK:Result::Planned))return r;
@@ -81,6 +122,7 @@ public:
    const uint32_t first=R4::ggttBase+(fb.ggttOffset>>12)*8;
    if(execute){
     for(uint32_t i=0;i<fb.pages;++i)io.write64(first+i*8,fb.dma[i]|R4::ptePresent);
+    ggttWritten=true;
     const uint32_t lo0=io.read(first),loN=io.read(first+(fb.pages-1)*8);
     const bool ok=lo0==uint32_t(fb.dma[0]|R4::ptePresent)&&loN==uint32_t(fb.dma[fb.pages-1]|R4::ptePresent);
     record(Step::Ggtt,ok?Action::Write:Action::Fail,first,lo0,loN);
@@ -114,5 +156,10 @@ public:
  }
  // skl_plane_disable_arm.
  void disablePlane(){if(execute){io.write(R4::planeCtl,0);io.write(R4::planeSurf,0);}}
+ // Undo runScanout's GGTT entries; call only when no plane fetches the range.
+ void restoreGgtt(const Framebuffer&fb){
+  if(execute&&ggttWritten)ReimsBringup::restoreGgtt(io,fb.ggttOffset,fb.pages,ggttPrior);
+  ggttWritten=false;
+ }
 };
 }

@@ -26,6 +26,11 @@ for key in ('ReimsBringupPath', 'ReimsBringupExecute', 'ReimsBringupStage', 'Phy
 if 'ReimsBringupResult' in p:
     r = p['ReimsBringupResult']
     print(f'ReimsBringupResult: {RESULTS[r] if r < len(RESULTS) else r}')
+# Stage 3: the GGTT range the framebuffer landed in (first unused one from
+# 16 MiB up inside GMADR) and the GMADR (BAR2) length that bounded the search.
+for k in ('ReimsBringupFramebufferGGTT', 'ReimsBringupGMADRLength', 'ReimsBringupFramebufferFirstDMA'):
+    if k in p:
+        print(f'{k}: {p[k]:#x}')
 EDID_STATUS = ['OK', 'Busy', 'Nak', 'Timeout', 'BadHeader', 'BadChecksum']
 for k in ('ReimsEDIDStatus', 'ReimsEDIDVendor', 'ReimsEDIDProduct',
           'ReimsEDIDPreferredHActive', 'ReimsEDIDPreferredVActive',

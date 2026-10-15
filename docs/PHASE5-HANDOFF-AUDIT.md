@@ -33,7 +33,7 @@ stage 4 end-to-end depends on phase 6 (TGL accelerator on RPL-S GT1).
 | # | Where | ADL-P assumption | RPL-S replacement |
 |---|---|---|---|
 | K1 | `intel_framebuffer.cpp` `configure` 303–304 | Boot FB mode exactly 1920×1080, 7680 B/row, 32 bpp, from `IONDRVFramebuffer` | Mode from the port-lit pipe: 3840×2160, 15360 B/row, 32 bpp, from the bring-up's published state and the decoder |
-| K2 | `configure` 307–309 | Aperture = the boot FB's system aperture | BAR2 (GMADR) sub-range at the bring-up framebuffer's GGTT offset (16 MiB), 15360 × 2160 bytes; the pages must stay wired after handoff |
+| K2 | `configure` 307–309 | Aperture = the boot FB's system aperture | BAR2 (GMADR) sub-range at the bring-up framebuffer's GGTT offset (`PLANE_SURF`; the first unused range from 16 MiB up), 15360 × 2160 bytes; the pages must stay wired after handoff |
 | K3 | `configure` 311–313 | Firmware plane: enabled, linear, stride 120, size 1919×1079, offset 0 | Bring-up plane 1A: enabled, linear, stride `0xf0`, size `0x086f0eff`, offset 0, surface = bring-up GGTT offset |
 | K4 | `configureHardwareTiming` 116–133 | Decoder is ADL-P transcoder A / PHY A; timing source string `adl-p-transcoder-a-combo-pll-link-mn` | rpls `decode(s,m)` already returns the first enabled transcoder (TC1/PHY B/DPLL0, HDMI); rename the source string per target |
 | K5 | `armPrimary` 200–217, `stop` 386 | Tiled scanout toggles `CHICKEN_MISC_2[30]` to disable DPT | No DPT on display 12 (`HAS_DPT`: display ≥ 13; `intel_dpt_configure` writes `CHICKEN_MISC_DISABLE_DPT` only on display 13): skip the toggle on rpls |
@@ -118,7 +118,7 @@ it stops at `PrepareDisplay`:
 
 `PrepareRuntime` starts Apple's TGL accelerator, which initialises the GPU
 and may reprogram the GGTT, power wells or display state the bring-up set up
-(GGTT `0x01000000`, pipe A, plane 1A). On ADL-P that state belonged to the
+(its GGTT range, pipe A, plane 1A). On ADL-P that state belonged to the
 firmware and was untouched. Whether the accelerator preserves a lit pipe and
 our GGTT range must be observed in phase 6; until then the handoff design
 assumes the bring-up runs before `PrepareRuntime` and re-checks the plane in
