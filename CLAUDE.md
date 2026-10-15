@@ -279,7 +279,13 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   after the read found it still `ACTIVE`. Now waits like i915
   `gmbus_wait_idle` (10 ms), and both readers wait up to 10 ms for a busy bus
   before refusing; the SCDC test model holds `ACTIVE` 20 us after STOP and
-  reproduced it first.
+  reproduced it first. Third 4K60 run: SCDC writes `OK`, but the step still aborted because
+  it required the sink's scrambler status *before* the DDI buffer was on (the
+  sink can only report it once the scrambled stream arrives). Now in i915's
+  order (`intel_ddi.c`): SCDC writes (non-fatal), DDI buffer, then poll the
+  status up to 200 ms (`intel_hdmi_poll_for_scrambling_enable`, non-fatal,
+  logged as `ScdcSetup [1]`). The test model only reports scrambling after
+  the buffer is enabled and reproduced the abort first.
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

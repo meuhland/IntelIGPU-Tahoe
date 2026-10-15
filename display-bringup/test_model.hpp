@@ -13,7 +13,7 @@ struct Model {
  std::map<uint32_t,uint32_t> r;std::vector<std::pair<uint32_t,uint32_t>> writes;
  std::vector<uint32_t> pcodeCalls;uint64_t now=0;
  bool pwAck=true,fuseAck=true,pllLocks=true,dbufAck=true,pcodeHangs=false;
- bool ddiIoAck=true,dpllLocks=true,ddiBufActive=true,surfLatches=true,scdcNak=false;
+ bool ddiIoAck=true,dpllLocks=true,ddiBufActive=true,surfLatches=true,scdcNak=false,scdcNoStatus=false;
  unsigned writes64=0;uint8_t scdcTmds=0;uint32_t gmbus3=0;
  unsigned pcodeBusyReplies=0;uint32_t pcodeStatus=0;
  Model(){
@@ -61,7 +61,9 @@ struct Model {
    if(scdcNak){r[0xc5108]|=1U<<10;return;}         // SATOER
    if(v&1U){                                       // indexed read
     const uint8_t off=(v>>8)&0xff;
-    gmbus3 = off==0x20?scdcTmds : off==0x21?uint8_t((scdcTmds&1)?1:0):0;
+    // A sink reports scrambling (SCDC 0x21) only once it receives a scrambled
+    // stream, i.e. after the DDI buffer is enabled (HDMI 2.0, i915 polls then).
+    gmbus3 = off==0x20?scdcTmds : off==0x21?uint8_t((scdcTmds&1)&&!scdcNoStatus&&(r[0x64300]&(1U<<31))?1:0):0;
     r[0xc5108]|=1U<<11;                            // HW_RDY
    }else{                                          // 2-byte write [off,val]
     if((gmbus3&0xff)==0x20)scdcTmds=(gmbus3>>8)&0xff;

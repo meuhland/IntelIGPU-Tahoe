@@ -10,6 +10,12 @@ using ReimsBringupTest::Model;
 static int failures;
 #define CHECK(c) do{if(!(c)){printf("FAIL %s:%d %s\n",__FILE__,__LINE__,#c);++failures;}}while(0)
 static bool fieldIs(uint32_t v,uint32_t mask,uint32_t want){return (v&mask)==want;}
+// Position of the first log entry for (step, index), or -1.
+static int logAt(const HdmiOutput<Model>&o,Step s,uint8_t index,Action a){
+ for(unsigned i=0;i<o.count;++i)
+  if(o.log[i].step==uint8_t(s)&&o.log[i].index==index&&o.log[i].action==uint8_t(a))return int(i);
+ return -1;
+}
 static bool loggedFail(const HdmiOutput<Model>&o,Step s){
  for(unsigned i=0;i<o.count;++i)if(o.log[i].step==uint8_t(s)&&o.log[i].action==uint8_t(Action::Fail))return true;
  return false;
@@ -60,7 +66,16 @@ int main(){
   CHECK(o.runOutput(kUhd60)==Result::OK);
   CHECK(m.read(0x60400)==0xa0030011);            // + HDMI_SCRAMBLING (bit0) + HIGH_TMDS_CHAR_RATE (bit4)
   CHECK(m.read(0x164284)==0x001001d0&&m.read(0x164288)==0x00000448); // DPLL0 594 MHz (div 3)
-  CHECK((m.read(0x60228)&0xff)==97);}            // AVI VIC 97 (4K60)
+  CHECK((m.read(0x60228)&0xff)==97);             // AVI VIC 97 (4K60)
+  // i915 order: SCDC writes, then the DDI buffer, then the sink's scrambling
+  // status (it only reports scrambling once the stream arrives).
+  const int setup=logAt(o,Step::ScdcSetup,0,Action::Write),buf=logAt(o,Step::DdiBuf,0,Action::Write),
+            status=logAt(o,Step::ScdcSetup,1,Action::Check);
+  CHECK(setup>=0&&buf>setup&&status>buf);}
+ // A sink that never reports scrambling is logged, not fatal (as in i915).
+ {Model m;m.scdcNoStatus=true;HdmiOutput<Model> o(m,true);
+  CHECK(o.runOutput(kUhd60)==Result::OK);
+  CHECK(logAt(o,Step::ScdcSetup,1,Action::Fail)>=0&&(m.read(0x64300)&(1U<<31)));}
  // 4K60 is refused when the mode does not request scrambling.
  {Model m;HdmiOutput<Model> o(m,true);
   HdmiMode noscramble=kUhd60;noscramble.scramble=false;

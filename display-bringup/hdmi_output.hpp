@@ -182,23 +182,33 @@ public:
   if(r==Result::OK)r=signalLevels();
   if(r==Result::OK)r=rmw(Step::PhyLanes,R3::clDw10,R3::pwrDownLanesMask,0); // 4 lanes, no reversal
   // SCDC: set 1/40 bit-clock ratio and scrambling on the sink before the port
-  // buffer enables (intel_hdmi_handle_sink_scrambling). The dry run records a
-  // plan; the live I2C only runs in the execute build (it drives GMBUS).
+  // buffer enables (intel_hdmi_handle_sink_scrambling). Non-fatal, as in i915
+  // (intel_ddi_pre_enable_hdmi only logs). The dry run records a plan; the
+  // live I2C only runs in the execute build (it drives GMBUS).
+  // VBT DDC pin 2 (HDMI-B) is GMBUS pin 9 on ADL-S.
+  constexpr uint8_t scdcPin=ReimsEDID::adlsGmbusPin(ReimsEDID::kHdmiBVbtDdcPin);
   if(r==Result::OK&&m.scramble){
    if(!execute)record(Step::ScdcSetup,Action::Plan,R3::ddiBufTc1,0,1);
    else{
     ReimsSCDC::Scdc<IO> scdc(io);
-    // VBT DDC pin 2 (HDMI-B) is GMBUS pin 9 on ADL-S.
-    constexpr uint8_t pin=ReimsEDID::adlsGmbusPin(ReimsEDID::kHdmiBVbtDdcPin);
-    const auto ss=scdc.setup(pin,true,true);
-    const bool live=ss==ReimsSCDC::Status::OK&&scdc.scramblingStatus(pin);
-    record(Step::ScdcSetup,live?Action::Write:Action::Fail,R3::ddiBufTc1,uint32_t(ss),live);
-    if(!live)r=Result::Unexpected;
+    const auto ss=scdc.setup(scdcPin,true,true);
+    record(Step::ScdcSetup,ss==ReimsSCDC::Status::OK?Action::Write:Action::Fail,R3::ddiBufTc1,uint32_t(ss),0);
    }
   }
   if(r==Result::OK)r=rmw(Step::DdiBuf,R3::ddiBufTc1,0,R3::ddiBufEnable);
   if(r==Result::OK)r=waitBits(Step::DdiBuf,R3::ddiBufTc1,R3::ddiBufIdle,0,10000);
   if(r!=Result::OK||!execute)return r==Result::OK?Result::Planned:r;
+  // intel_hdmi_poll_for_scrambling_enable: the sink can only report scrambling
+  // once it receives the scrambled stream, so poll after the buffer enables,
+  // up to 200 ms (HDMI spec). Non-fatal, as in i915; index 1 in the log. The
+  // 2026-10-15 4K60 run checked before the buffer and always aborted here.
+  if(m.scramble){
+   ReimsSCDC::Scdc<IO> scdc(io);
+   const uint64_t deadline=io.nowUS()+200000;
+   bool on=false;
+   while(!(on=scdc.scramblingStatus(scdcPin))&&io.nowUS()<deadline)io.delayUS(1000);
+   record(Step::ScdcSetup,on?Action::Check:Action::Fail,R3::ddiBufTc1,1,on,1);
+  }
   // Readback: the scanline moves and the decoder reconstructs the mode.
   const uint32_t dsl0=io.read(R3::pipeDslA)&0xfffff;io.delayUS(1000);
   const uint32_t dsl1=io.read(R3::pipeDslA)&0xfffff;
