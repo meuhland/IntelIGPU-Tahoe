@@ -30,7 +30,7 @@ struct Model {
   // PIPEDSL A advances while transcoder A runs.
   if(a==0x70000&&(r[0x70008]&(1U<<30)))r[a]=v=(v+7)%2250;
   if(a==0xc510c)return gmbus3;            // GMBUS3: staged SCDC read byte
-  if(a==0xc5108)return r[0xc5108];        // GMBUS2
+  if(a==0xc5108){const uint32_t g=r[0xc5108];r[0xc5108]|=1U<<15;return g;} // GMBUS2: read sets INUSE
   return v;
  }
  void delayUS(uint32_t us){now+=us;}

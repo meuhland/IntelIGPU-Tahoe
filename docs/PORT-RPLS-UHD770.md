@@ -836,6 +836,10 @@ forcewake-hold probe (`REIMS_GT_FORCEWAKE_HOLD=1`, UUID `0C82A034`) before
   panic). The zero topology was a real bug but not the cause of the hang.
 - Open suspect from the log: `Failed to register with service. Using Local
   Filter Interrupt Source!` (standalone mode, no framebuffer controller).
+- Interrupt inventory of the IGD (read-only, same day): index 0 INTx level
+  (INTA, line 22), index 1 MSI edge (cap `0xac`, not enabled), so the
+  fallback source has an interrupt to attach to. Delivery during `start` is
+  untested. Evidence: `~/work/igpu-notes/window-20261015-intr-probe.txt`.
 
 Evidence: `~/work/igpu-notes/window-20261015-gt-hold.txt`,
 `desktop-manual-20260917/fix/session-20261015-130724-068558-start/`.

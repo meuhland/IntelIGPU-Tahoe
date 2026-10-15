@@ -60,7 +60,11 @@ public:
  explicit Reader(IO&i):io(i){}
  // Read 128-byte block 0 from slave 0x50 at offset 0 on the given DDC pin.
  Status readBlock0(uint8_t pin,uint8_t out[128]){
-  if(io.read(R::gmbus2)&R::inUse)return Status::Busy;
+  // Refuse only a transfer still in progress (GMBUS_ACTIVE). GMBUS2's INUSE
+  // bit is not a usable "busy" flag: i915 never reads or clears it, and on
+  // hardware it stays set once read, so gating on it refused every transfer
+  // after the first (2026-10-15 4K60 run: SCDC, then the EDID read, Busy).
+  if(io.read(R::gmbus2)&R::active)return Status::Busy;
   io.write(R::gmbus0,R::rate100|pin);
   io.write(R::gmbus4,0);
   // Combined index(offset 0) + read of 128 bytes (gmbus_index_xfer path).

@@ -28,7 +28,7 @@ struct Model {
  uint64_t nowUS(){return now;}
  void delayUS(uint32_t us){now+=us;}
  uint32_t read(uint32_t a){
-  if(a==G::gmbus2){uint32_t v=g2|(inUse?G::inUse:0);return v;}
+  if(a==G::gmbus2){uint32_t v=g2|(inUse?G::inUse:0);inUse=true;return v;}  // read-to-set INUSE
   if(a==G::gmbus3){uint32_t v=0;for(unsigned i=0;i<4;++i)v|=uint32_t(pos<128?src[pos++]:0)<<(i*8);
    remaining=remaining>=4?remaining-4:0;g2&=~G::hwRdy;if(remaining)g2|=G::hwRdy;return v;}
   return 0;
@@ -65,9 +65,15 @@ int main(){
  // A monitor that NAKs (nothing connected) maps to Nak, not garbage.
  {Model m(kRealEdid);m.nak=true;Reader<Model> r(m);Edid e;
   CHECK(r.read(2,e)==Status::Nak);}
- // Bus already in use is refused.
- {Model m(kRealEdid);m.inUse=true;Reader<Model> r(m);Edid e;
+ // A transfer still running (GMBUS_ACTIVE) is refused; a stale INUSE, which
+ // every GMBUS2 read sets and nothing releases, is not (2026-10-15: the 4K60
+ // run's SCDC transfers left it set and the EDID read then said Busy).
+ {Model m(kRealEdid);m.g2=G::active;Reader<Model> r(m);Edid e;
   CHECK(r.read(2,e)==Status::Busy);}
+ {Model m(kRealEdid);m.inUse=true;Reader<Model> r(m);Edid e;
+  CHECK(r.read(2,e)==Status::OK);}
+ {Model m(kRealEdid);Reader<Model> r(m);Edid e1,e2;            // two reads in a row
+  CHECK(r.read(2,e1)==Status::OK&&r.read(2,e2)==Status::OK&&e2.prefHActive==3840);}
  if(failures){printf("%d failure(s)\n",failures);return 1;}
  printf("PASS: GMBUS EDID read + parse (real Samsung 4K block 0, NAK, bad EDID)\n");
  return 0;

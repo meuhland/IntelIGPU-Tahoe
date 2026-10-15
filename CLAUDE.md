@@ -208,6 +208,12 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   timeout or panic in 3-4 min), so the zero topology was not the hang's cause.
   Suspect: standalone interrupt fallback ("Using Local Filter Interrupt
   Source"). Details in the port doc "Forcewake hold on hardware".
+- IGD interrupt inventory (hardware 2026-10-15, read-only gt-reset-probe):
+  `GFX0` offers index 0 = INTx level (pin INTA, line 22) and index 1 = MSI
+  edge (capability `0xac`, disabled until a driver configures it); 2
+  specifiers, controllers present. So an interrupt *exists* for Apple's
+  fallback filter source; whether GT interrupts are *delivered* during
+  `start` is still open. (An earlier ioreg scan suggesting none was wrong.)
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On
@@ -261,6 +267,15 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   any failed run. Option C (`rpls_light.hpp`) uses the same search. Published
   as `ReimsBringupFramebufferGGTT`/`ReimsBringupGMADRLength`. Host-tested; the
   default rpls `intel_framebuffer.o` `__text` is unchanged.
+- GMBUS busy-check fix (2026-10-15): the first 4K60 run failed at
+  `ScdcSetup` with `Busy`, then the EDID read was `Busy` too. Our GMBUS code
+  refused a transfer when GMBUS2 `INUSE` (bit 15) was set; i915 defines that
+  bit but never reads or clears it, and it stays set once read, so every
+  transfer after the first was refused (4K30 only ever made one). Now gated on
+  `GMBUS_ACTIVE` (edid_read.hpp, hdmi_scdc.hpp); test models make GMBUS2 reads
+  set INUSE and reproduced the failure before the fix. Rebuilt stage-3 kexts:
+  dry `06D6E32F`, execute+sampler `F094C2BB`, 4K60 dry `D44F9222`, 4K60
+  execute `EEF10F67` (`REIMS_BRINGUP_UHD60=1`).
 - SCDC/4K60 done (code): `hdmi_scdc.hpp` sets sink scrambling + 1/40 ratio and
   `kUhd60` sets the DDI scrambling bits; stage-3 kext is 4K30 by default,
   4K60 via a `kUhd60` build. Host tests cover both. Not run on hardware.

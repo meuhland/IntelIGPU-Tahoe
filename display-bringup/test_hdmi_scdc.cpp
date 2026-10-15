@@ -12,11 +12,14 @@ namespace G=ReimsEDID::R;
 struct Model2 {
  uint8_t tmds=0x00; uint32_t g2=0,g3=0; uint64_t now=0; bool nak=false; uint8_t readVal=0;
  uint64_t nowUS(){return now;} void delayUS(uint32_t us){now+=us;}
- uint32_t read(uint32_t a){ if(a==G::gmbus2)return g2; if(a==G::gmbus3)return readVal; return 0; }
+ // GMBUS2 bit 15 (INUSE) behaves as a read-to-set semaphore that nothing in
+ // this driver releases (i915 never touches it either): every read leaves it set.
+ uint32_t read(uint32_t a){ if(a==G::gmbus2){const uint32_t v=g2;g2|=G::inUse;return v;} if(a==G::gmbus3)return readVal; return 0; }
  void write(uint32_t a,uint32_t v){
   if(a==G::gmbus3){g3=v;return;}
   if(a==G::gmbus1){
-   if(v&G::cycleStop)return;
+   if(v&G::cycleStop){g2&=~G::active;return;}
+   g2|=G::active;
    if(nak){g2|=G::satoer;return;}
    if(v&G::slaveRead){
     const uint8_t off=(v>>G::slaveIndexShift)&0xff;
@@ -41,7 +44,10 @@ int main(){
   CHECK(s.setup(2,false,false)==Status::OK);CHECK(m.tmds==0);CHECK(!s.scramblingStatus(2));}
  // A sink that NAKs reports Nak, not success.
  {Model2 m;m.nak=true;Scdc<Model2> s(m);CHECK(s.setup(2,true,true)==Status::Nak);}
+ // A transfer still running (GMBUS_ACTIVE) is refused; a stale INUSE is not.
+ {Model2 m;m.g2=G::active;Scdc<Model2> s(m);CHECK(s.setup(2,true,true)==Status::Busy);}
+ {Model2 m;m.g2=G::inUse;Scdc<Model2> s(m);CHECK(s.setup(2,true,true)==Status::OK);}
  if(failures){printf("%d failure(s)\n",failures);return 1;}
- printf("PASS: SCDC setup over GMBUS (1/40 ratio + scrambling, disable, NAK)\n");
+ printf("PASS: SCDC setup over GMBUS (1/40 ratio + scrambling, disable, NAK, busy vs stale INUSE)\n");
  return 0;
 }

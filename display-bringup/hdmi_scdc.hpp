@@ -30,7 +30,7 @@ template<class IO> class Scdc {
  }
  Status finish(Status s){io.write(G::gmbus1,G::cycleStop|G::swRdy);io.write(G::gmbus0,0);return s;}
  Status begin(uint8_t pin){
-  if(io.read(G::gmbus2)&G::inUse)return Status::Busy;
+  if(io.read(G::gmbus2)&G::active)return Status::Busy;  // see edid_read.hpp
   io.write(G::gmbus0,G::rate100|pin);io.write(G::gmbus4,0);
   return Status::OK;
  }
