@@ -619,6 +619,7 @@ The script prints one `=>` line per question. Reading them:
 | `cold before any FLR: … no D3 involved` | `i915` unbind (or the bind) leaves it cold | GDRST/FLR verdicts below decide; else option 4 |
 | `FLR COLDS the GT` | fuses survive the bind but QEMU's reset-on-open wipes them | disable the reset before the VM starts: `echo > /sys/bus/pci/devices/0000:00:02.0/reset_method` (empty string disables reset; `echo default >` restores, per the kernel's sysfs-bus-pci ABI doc), then a VM window to see if the guest reads 1/3 |
 | `FLR REVIVES the fuses` | option 3 works | wire an FLR into the handoff |
+| `PM reset (D3hot->D0) COLDS the GT` | a D3 round trip wipes the fuse download (the device has no `NoSoftRst`, so D3hot→D0 is a reset) | keep it in D0: vfio-pci `disable_idle_d3=1` on the host, and find what puts it in D3 in the guest (OVMF/macOS writing PMCSR, which vfio passes through) |
 | `GDRST REVIVES the fuses` | option 2 works | the in-guest `gt-reset-probe` execute is worth its window |
 | `GDRST does not re-populate` + no FLR revive | resets are not the lever | option 4 (GOP), or keep the host's warm state via the two host knobs above |
 
@@ -627,6 +628,56 @@ change (no D3, or no reset-on-open) hands the guest the warm GT that `i915`
 left, and the guest reads 1/3 without any GOP work. Then run the next VM window
 with that knob set: Apple's `getGPUInfo` should read the real fuses, so the
 topology injection becomes a no-op safety net.
+
+Kernel facts above (`reset_method` empty string, `disable_idle_d3` read at
+module load, sysfs BAR mmap refused for regions a driver holds under strict
+iomem, `pci_pm_reset` only offered without `NoSoftRst`) checked identical at
+v6.6, v6.8 (PVE 8) and v6.14 (PVE 9). The i915 register facts are hardware and
+do not depend on the host kernel.
+
+##### Host result 2026-10-15 (`coldgt_check.py all --wake`, before the `pm` step existed)
+
+```
+device: driver=vfio-pci runtime_status_before=active pm_state=D0 reset_method=flr pm command=0x0002
+read       raw        slice=0x1 dss=0x3 eu_disable=0x0 media=0xe00fa  populated
+forcewake  forcewake  slice=0x1 dss=0x3 eu_disable=0x0 media=0xe00fa  populated (acked)
+flr        before     populated
+           raw        slice=0x0 dss=0x0 eu_disable=0x0 media=0x0      (all zero)
+           forcewake  slice=0x1 dss=0x3 eu_disable=0x0 media=0xe00fa  populated
+gdrst      forcewake  populated  ->  after_reset populated (cleared, loops=2)
+```
+
+- **The host handoff does not cold the GT.** After the `i915` unbind and the
+  `vfio-pci` bind, the fuses read populated, and they still do after an FLR
+  (the reset QEMU applies on open) and after GDRST. Neither reset is the
+  culprit; neither is a fix needed on the host side so far.
+- **Two different zero states.** Right after the FLR the raw read is zero for
+  every fuse *including media* — the GT is asleep, and forcewake reads the
+  real values. The VM's reading was different: slice/DSS 0 but media
+  `0xf00ff` (real value `0xe00fa`). The GT answered, but its fuse mirrors held
+  something other than the download. `coldgt_check.py` now tags these
+  separately (`asleep` vs `cold`, the VM signature).
+- **Not exercised: D3.** `runtime_status_before=active` — the device never
+  runtime-suspended (PCI devices default to `power/control=on`, so vfio-pci's
+  idle D3 only happens if something sets `auto`). Its `reset_method` includes
+  `pm`, which the kernel offers only when PMCSR `NoSoftRst` is clear, so a
+  D3hot→D0 transition *is* an internal reset on this device. That is the one
+  reset path left, and it can be triggered from inside the guest: vfio passes
+  guest PMCSR writes through, so OVMF or macOS putting the unclaimed (FFFF)
+  device into D3 would reset it with nobody to re-init it.
+
+Next, both cheap:
+
+1. **Host, `coldgt_check.py pm --wake`** (new step; included in `all`): forces a
+   D3hot→D0 through the kernel's `pm` reset method (restores `reset_method`
+   afterwards) and compares forcewake reads. `COLDS` with the `cold` signature
+   reproduces the VM's state on the host and names the trigger.
+2. **Guest, `gt-reset-probe` early in the boot.** Load the execute build
+   before stage 3 / the gate and read raw, forcewake and post-GDRST values
+   (the host just showed GDRST is benign). Cold at that point → the GT is cold
+   when macOS first sees it (QEMU/OVMF/guest PM); populated → something this
+   port loads later colds it, so repeat after stage 3 to bisect. Also check
+   the guest's PM state: `ioreg -r -n GFX0 -l | grep -i 'IOPowerManagement\|CurrentPowerState'`.
 
 #### Verified against i915 v6.6 (offline, 2026-10-14)
 

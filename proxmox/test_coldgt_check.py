@@ -22,10 +22,12 @@ def check(cond, what):
 class Fake:
     """Simulated a780: fuses populated or cold; FLR/GDRST can change that."""
 
-    def __init__(self, driver='vfio-pci', fuses_hot=True, flr_colds=False, gdrst_heals=False,
+    def __init__(self, driver='vfio-pci', fuses_hot=True, flr_colds=False, gdrst_heals=False, pm_colds=False,
                  decode=True, d3=False, users=(), device=C.DEVICE, asleep=False):
         self.drv, self.users, self.device = driver, list(users), device
         self.hot, self.flr_colds, self.gdrst_heals = fuses_hot, flr_colds, gdrst_heals
+        self.pm_colds = pm_colds
+        self.pm_resets = 0
         self.cmd = 0x0406 if decode else 0x0404
         self.d3 = d3
         self.asleep = asleep  # GT in RC6: fuse reads 0 unless render forcewake is held
@@ -66,6 +68,11 @@ class Fake:
     def close(self):
         self.closed = True
 
+    def pm_reset(self):
+        self.pm_resets += 1
+        if self.pm_colds:
+            self.hot = False
+
     def function_reset(self):
         self.resets += 1
         if self.flr_colds:
@@ -84,7 +91,7 @@ class Fake:
         if off == 0x913c:
             return 3 if self.hot else 0
         if off == 0x9140:
-            return 0xf00ff
+            return 0xe00fa if self.hot else 0xf00ff
         return self.reg.get(off, 0)
 
     def write32(self, off, v):
@@ -155,7 +162,7 @@ check(any('GDRST does not re-populate' in s for s in v), 'verdict: GDRST not the
 check(res['steps']['gdrst']['reset_loops'] == 2 and d.writes.count(C.GDRST) == 2, 'GDRST twice')
 # forcewake released after every forcewake step: last write per req is the release.
 rel = [o for o in d.writes if o in (C.FW_RENDER[0], C.FW_GT[0])]
-check(len(rel) == 4 * 4, "forcewake acquire+release: forcewake 1x, flr 2x (pre+post), gdrst 1x")
+check(len(rel) == 6 * 4, "forcewake acquire+release: forcewake 1x, flr 2x, pm 2x, gdrst 1x")
 
 # Cold after bind, GDRST heals: option 2 verdict.
 d = Fake(fuses_hot=False, gdrst_heals=True)
@@ -189,6 +196,18 @@ check('bind itself left it cold' in out and 'disable_idle_d3' not in out, 'verdi
 d = Fake(flr_colds=True)
 rc, out, _ = run(['flr'], d)
 check('reset_method' in out, 'verdict: FLR colds -> disable reset')
+
+# PM reset (D3hot->D0) colds the GT, FLR does not: the VM signature after pm.
+d = Fake(pm_colds=True)
+rc, out, _ = run(['all'], d)
+check(d.resets == 1 and d.pm_resets == 1, 'all runs one FLR and one PM reset')
+check('FLR: no change (populated)' in out, 'pm case: FLR no change')
+check('PM reset (D3hot->D0) COLDS the GT (cold)' in out, 'pm case: PM reset colds, cold signature')
+check('the VM signature' in out, 'pm case: media-live zero tagged as VM signature')
+
+# Asleep (all zero incl. media) is tagged differently from cold.
+check(C.classify({'slice': 0, 'dss': 0, 'eu_disable': 0, 'media': 0}) == 'asleep', 'classify asleep')
+check(C.classify({'slice': 0, 'dss': 0, 'eu_disable': 0, 'media': 0xf00ff}) == 'cold', 'classify cold')
 
 if failures:
     sys.exit(1)

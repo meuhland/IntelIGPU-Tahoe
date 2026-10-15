@@ -13,8 +13,10 @@ Run as root on the Proxmox host with VM 113 stopped. Steps:
   read       raw fuse read, no writes (safe under any driver)
   forcewake  raw read, render+GT forcewake, read, release
   flr        sysfs function reset (what vfio/QEMU applies), then raw + forcewake read
+  pm         PCI PM reset (D3hot -> D0): what a guest PMCSR write or the vfio
+             idle D3 does to the device; then raw + forcewake read
   gdrst      forcewake, GEN6_GDRST full reset (i915 sequence), read, release
-  all        read, forcewake, flr, gdrst in that order
+  all        read, forcewake, flr, pm, gdrst in that order
 
 Everything except `read` writes to the GPU and needs the device on vfio-pci (or
 no driver) with no VM holding it. Register facts mirror gt-reset-probe/gt_reset.hpp
@@ -120,6 +122,17 @@ class SysfsDevice:
     def function_reset(self):
         self.set_attr('reset', '1')
 
+    def pm_reset(self):
+        """Reset through the 'pm' method only (D3hot -> D0), then restore the list."""
+        old = self.attr('reset_method') or 'default'
+        if 'pm' not in old.split() and old != 'default':
+            raise OSError(f'pm reset not supported (reset_method: {old})')
+        self.set_attr('reset_method', 'pm')
+        try:
+            self.set_attr('reset', '1')
+        finally:
+            self.set_attr('reset_method', old)
+
     def close(self):
         if self._regs is not None:
             self._regs.release()
@@ -152,6 +165,22 @@ def populated(f):
 
 def unreadable(f):
     return any(v == ALL_ONES for v in f.values())
+
+
+def classify(f):
+    """populated / cold / asleep / unreadable.
+
+    Two different 'zero' states were seen: on the host right after an FLR, a
+    raw read returns 0 for every fuse including media (GT asleep; forcewake
+    reads the real 1/3/0xe00fa). In VM 113 Apple read slice/DSS 0 but media
+    0xf00ff (not the real 0xe00fa): the GT answers but its fuse mirrors hold
+    something other than the download. That is the 'cold' signature.
+    """
+    if unreadable(f):
+        return 'unreadable'
+    if populated(f):
+        return 'populated'
+    return 'cold' if f['media'] else 'asleep'
 
 
 def acquire_forcewake(dev, req, ack):
@@ -205,14 +234,22 @@ def step_forcewake(dev):
     return rec
 
 
-def step_flr(dev):
+def reset_step(dev, reset):
     # Compare forcewake reads on both sides: a raw read can be 0 merely because
     # the GT is asleep (RC6), which would fake a 'revives' verdict.
     before = with_forcewake(dev, lambda: {'f': read_fuses(dev)})['f']
-    dev.function_reset()
+    reset()
     rec = {'before': before, 'raw': read_fuses(dev)}
     rec.update(with_forcewake(dev, lambda: {'forcewake': read_fuses(dev)}))
     return rec
+
+
+def step_flr(dev):
+    return reset_step(dev, dev.function_reset)
+
+
+def step_pm(dev):
+    return reset_step(dev, dev.pm_reset)
 
 
 def step_gdrst(dev):
@@ -224,8 +261,9 @@ def step_gdrst(dev):
     return with_forcewake(dev, body)
 
 
-STEPS = {'read': step_read, 'forcewake': step_forcewake, 'flr': step_flr, 'gdrst': step_gdrst}
-ORDER = ('read', 'forcewake', 'flr', 'gdrst')
+STEPS = {'read': step_read, 'forcewake': step_forcewake, 'flr': step_flr, 'pm': step_pm,
+         'gdrst': step_gdrst}
+ORDER = ('read', 'forcewake', 'flr', 'pm', 'gdrst')
 
 
 def preflight(dev, steps, wake, enable_decode):
@@ -278,8 +316,9 @@ def undo(dev, restore):
 def fmt(f):
     if f is None:
         return '-'
-    tag = 'UNREADABLE (D3 / decode off)' if unreadable(f) else (
-        'populated' if populated(f) else 'COLD (slice/DSS zero)')
+    tag = {'unreadable': 'UNREADABLE (D3 / decode off)', 'populated': 'populated',
+           'cold': 'COLD (slice/DSS zero, media live: the VM signature)',
+           'asleep': 'zero incl. media (GT asleep, not cold)'}[classify(f)]
     return (f'slice={f["slice"]:#x} dss={f["dss"]:#x} eu_disable={f["eu_disable"]:#x} '
             f'media={f["media"]:#x}  -> {tag}')
 
@@ -324,7 +363,18 @@ def verdict(results, info=None):
         elif not populated(b) and populated(a):
             lines.append('FLR REVIVES the fuses (option 3 works)')
         else:
-            lines.append('FLR: no change (' + ('populated' if populated(a) else 'cold') + ')')
+            lines.append('FLR: no change (' + classify(a) + ')')
+    pm = results.get('pm')
+    if pm:
+        b, a = pm['before'], pm['forcewake']
+        if populated(b) and not populated(a):
+            lines.append(f'PM reset (D3hot->D0) COLDS the GT ({classify(a)}): a D3 in the guest or '
+                         'host is the trigger; keep the device in D0 (vfio-pci disable_idle_d3=1, '
+                         'and find what puts it in D3 in the guest)')
+        elif not populated(b) and populated(a):
+            lines.append('PM reset REVIVES the fuses')
+        else:
+            lines.append('PM reset: no change (' + classify(a) + ')')
     gd = results.get('gdrst')
     if gd:
         b, a = gd['forcewake'], gd['after_reset']
