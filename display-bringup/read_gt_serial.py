@@ -20,6 +20,9 @@ DEFAULT_NAMES = [
     "rcsReset", "rcsMiMode",
     "bcsHead", "bcsTail", "bcsCtl", "bcsActhd",
     "errorGen6", "ringFault",
+    "gfxMstrIrq", "gtIntrDw0", "gtIntrDw1",
+    "rcsBcsIntrEn", "rcsImr", "rcsEir",
+    "rcsEsr", "rcsHwsPga",
     "transconfA", "surfLiveA",
     "fbPteLo", "fbPteHi",
 ]
@@ -28,10 +31,17 @@ TICK_MS = 250
 LINE_BUDGET = 4000  # Policy::maxLines
 HEADER = re.compile(r"ReimsGT seq ms((?: [A-Za-z0-9]+)+)\s*$")
 SAMPLE = re.compile(r"ReimsGT (\d+) (\d+)((?: [0-9a-f]{8})+)\s*$")
+# gt-reset-probe hold build (gt_watch.hpp): the sampler thread stopped advancing.
+STALL = re.compile(r"ReimsGT stall seq (\d+) ms (\d+) (?:reading (\w+) 0x([0-9a-f]+)|starved) for (\d+) ms")
 
-# Forcewake: TGL's native SafeForceWake requests with index 1, so its
-# RENDER/GT acknowledgement is bit 1 (ReimsADLDesktopLink.cpp kForceWakeBit).
+# Forcewake: TGL's native SafeForceWake requests with index 1 (bit 1,
+# ReimsADLDesktopLink.cpp kForceWakeBit); the gt-reset-probe hold build uses
+# bit 2. The ack register mirrors every held requester bit; any one keeps the
+# domain awake.
 FORCEWAKE_BIT = 1 << 1
+FORCEWAKE_REQUESTERS = 0xFFFF
+# GEN11_GFX_MSTR_IRQ (i915_reg.h)
+MSTR_IRQ_ENABLE, MSTR_DISPLAY, MSTR_GT_DW0, MSTR_GT_DW1 = 1 << 31, 1 << 16, 1 << 0, 1 << 1
 GEN11_CSB_ENTRIES = 12
 HEAD_ADDR, TAIL_ADDR, RING_VALID, RING_NR_PAGES = 0x001FFFFC, 0x001FFFF8, 0x1, 0x001FF000
 
@@ -98,7 +108,8 @@ def csb(v):
 
 def describe(name, value):
     if name.startswith("fwAck"):
-        return f"0x{value:08x} ({'acked' if value & FORCEWAKE_BIT else 'NOT acked'} bit 1)"
+        held = value & FORCEWAKE_REQUESTERS
+        return f"0x{value:08x} (" + (f"acked, requester bits 0x{held:x}" if held else "NOT acked") + ")"
     if name == "gucStatus":
         return f"0x{value:08x} ({guc(value)})"
     if name == "rcsReset":
@@ -110,6 +121,11 @@ def describe(name, value):
         return f"0x{value:08x} ({mimode(value)})"
     if name == "fbPteLo":
         return f"0x{value:08x} ({'valid' if value & 1 else 'NOT valid'}, address bits 0x{value & 0xFFFFF000:08x})"
+    if name == "gfxMstrIrq":
+        bits = [n for b, n in ((MSTR_GT_DW0, "GT DW0"), (MSTR_GT_DW1, "GT DW1"), (MSTR_DISPLAY, "display"))
+                if value & b]
+        return (f"0x{value:08x} (master {'enabled' if value & MSTR_IRQ_ENABLE else 'DISABLED'}, pending: "
+                + (", ".join(bits) or "none") + ")")
     if name == "transconfA":
         return f"0x{value:08x} ({'enabled' if value >> 31 & 1 else 'disabled'}, {'active' if value >> 30 & 1 else 'inactive'})"
     return f"0x{value:08x}"
@@ -155,11 +171,11 @@ def summary(samples):
 
     s = samples[-1][2]
     out.append("Final state:")
-    if not (s["fwAckGT"] & FORCEWAKE_BIT and s["fwAckRender"] & FORCEWAKE_BIT):
-        out.append("  forcewake: bit 1 not acknowledged on GT and/or Render; GT registers may read 0 because the GT "
-                   "is asleep, or a forcewake request was never acknowledged.")
+    if not (s["fwAckGT"] & FORCEWAKE_REQUESTERS and s["fwAckRender"] & FORCEWAKE_REQUESTERS):
+        out.append("  forcewake: not acknowledged on GT and/or Render (no requester bit held); GT registers may "
+                   "read 0 because the GT is asleep, or a forcewake request was never acknowledged.")
     else:
-        out.append("  forcewake: acknowledged (GT awake).")
+        out.append(f"  forcewake: acknowledged (GT awake; GT requester bits 0x{s['fwAckGT'] & FORCEWAKE_REQUESTERS:x}).")
     out.append(f"  GuC: {describe('gucStatus', s['gucStatus'])}; DMA_CTRL 0x{s['gucDmaCtrl']:08x}")
     if (s["gucStatus"] >> 30) & 3 == 1:
         out.append("  GuC firmware authentication FAILED.")
@@ -182,6 +198,14 @@ def summary(samples):
     if trailing >= 2 and unread:
         out.append(f"  RCS context-status buffer has {unread} unread entries that are not being consumed "
                    "(execlist events not processed).")
+    tail = [x[2] for x in samples[-3:]]
+    pending = [x for x in tail if x["gtIntrDw0"] or x["gtIntrDw1"]]
+    if len(tail) >= 2 and len(pending) == len(tail):
+        out.append(f"  GT interrupt pending and not serviced over the last {len(tail)} samples (GT_INTR_DW0 "
+                   f"0x{s['gtIntrDw0']:08x}, DW1 0x{s['gtIntrDw1']:08x}; {describe('gfxMstrIrq', s['gfxMstrIrq'])}): "
+                   "the GPU raised it, nothing handled it.")
+    if s["rcsEir"]:
+        out.append(f"  RCS error identity nonzero: EIR 0x{s['rcsEir']:08x}, ESR 0x{s['rcsEsr']:08x}.")
     if s["rcsReset"] & 0b101:
         out.append("  RCS reset requested or catastrophic error flagged.")
     if s["errorGen6"] or s["ringFault"]:
@@ -197,12 +221,34 @@ def summary(samples):
     return out
 
 
+def stalls(text):
+    """(seq, ms, register name or None if starved, offset, stuck ms) per stall line."""
+    out = []
+    for m in STALL.finditer(text):
+        out.append((int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4), 16) if m.group(4) else None,
+                    int(m.group(5))))
+    return out
+
+
+def stall_summary(found):
+    if not found:
+        return []
+    seq, ms, name, offset, stuck = found[-1]
+    if name:
+        return [f"Sampler STUCK in a register read: {name} (0x{offset:06x}) never completed; last report "
+                f"{stuck / 1000:.1f} s after sample #{seq} (log time {ms} ms). An MMIO read to the GT is hanging, "
+                "so the accelerator's own thread is likely stuck the same way."]
+    return [f"Sampler thread STARVED (not in a read) for {stuck / 1000:.1f} s after sample #{seq}: the CPU it "
+            "needs is not being scheduled (a spinning thread with preemption disabled?)."]
+
+
 def main(argv):
     if len(argv) != 2:
         sys.exit(__doc__.strip().splitlines()[2])
     with open(argv[1], encoding="utf-8", errors="replace") as f:
-        _, samples = parse(f.read())
-    print("\n".join(timeline(samples) + [""] + summary(samples)))
+        text = f.read()
+    _, samples = parse(text)
+    print("\n".join(timeline(samples) + [""] + summary(samples) + stall_summary(stalls(text))))
 
 
 if __name__ == "__main__":

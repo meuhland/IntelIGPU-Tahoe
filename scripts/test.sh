@@ -48,3 +48,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
  gt-reset-probe/test_gt_reset.cpp -o "$timing_test/test_gt_reset"
 "$timing_test/test_gt_reset"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
+ gt-reset-probe/test_gt_watch.cpp -o "$timing_test/test_gt_watch"
+"$timing_test/test_gt_watch"

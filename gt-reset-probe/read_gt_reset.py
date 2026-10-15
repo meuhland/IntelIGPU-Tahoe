@@ -18,7 +18,7 @@ if not entries:
 p = entries[0]
 
 for key in ('ReimsGTResetPath', 'ReimsGTResetExecuteBuild', 'ReimsGTForcewakeHoldBuild',
-            'PhysicalIdentityVerified', 'ForcewakeHeld',
+            'PhysicalIdentityVerified', 'ForcewakeHeld', 'ReimsGTWatch',
             'ReimsGTResetComplete', 'ReimsGTResetExecuted', 'ReimsGTResetError'):
     if key in p:
         print(f'{key}: {p[key]}')

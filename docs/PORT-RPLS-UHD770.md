@@ -769,10 +769,49 @@ hardware path instead of the empty standalone callback. Safe that early: its
 spinlock (`+0x1468`) is allocated in `start` at `0x23f63`, before
 `configureDevice`, and the MMIO map (`+0x1240`) is set before `getGPUInfo`.
 Candidate UUID `b2d3495428c12c2cb29103a87d2c63da` (computed offline; the
-default rpls candidate stays `3a7cfb99…`, adlp is unaffected). The gate
-compiles against the candidate UUID, so switching means re-prepare, rebuild
-the gate, reinstall, and reboot — do it in the window after the hold probe
-has proved the diagnosis. If it works, the hold probe is no longer needed.
+default rpls candidate stays `3a7cfb99…`, adlp is unaffected). Switching
+means re-prepare, reinstall, and reboot; the gate does not compile
+`deferred_uuid.hpp` (`session.py` checks the UUID through
+`deferred-runtime.json`, per the 2026-10-15 re-prepare). The hold window
+proved the diagnosis, so this is now the clean replacement for the hold
+probe's forcewake, but it does not address the hang below.
+
+##### GT watch for the hang (offline, 2026-10-15)
+
+The hold window left the start hang with no register view: the bring-up's
+sampler needs stage 3's BAR mapping (it likely never armed on 10-14, when
+stage 3 refused at the GGTT guard; "work loop starved" was a guess) and
+stage 3 was skipped on 10-15. Statically, the last log line comes from
+`IGScheduler5::initPriorityConfig` (it creates four timers and returns), then
+the per-engine `IGHardwareCommandStreamer5`s are created and `start` reaches
+`startGraphicsEngine`, which submits three stamp commands and calls
+`IGAccelEventMachine::finishAllStamps`. That forwards to its superclass in
+`IOAcceleratorFamily2` (not in this binary), so whether it waits by polling
+or on an interrupt cannot be read here.
+
+The hold build now carries a GT watch (`gt-reset-probe/gt_watch.hpp`): two
+kernel threads, not an IOKit work loop. A sampler reads the `gt_sampler.hpp`
+registers every 250 ms; a reporter that never touches MMIO prints them over
+serial and, if the sampler stops advancing for 2 s, prints a stall line naming
+the register it is stuck reading (an MMIO read that never completes) or
+`starved` (the thread is not being scheduled). The register list gained the
+interrupt path (i915 v6.6): `GEN11_GFX_MSTR_IRQ` `0x190010`,
+`GEN11_GT_INTR_DW0/1` `0x190018/1c`, `GEN11_RENDER_COPY_INTR_ENABLE`
+`0x190030`, RCS `IMR`/`EIR`/`ESR` `0x20a8/b0/b8` and `HWS_PGA` `0x2080`.
+`read_gt_serial.py` decodes all of it and summarises the hang. Host-tested;
+the kext variants syntax-check against the SDK; the probe now links
+`com.apple.kpi.mach` (thread and time calls, per xnu `Mach.exports`).
+
+Reading the hang from the capture:
+
+| Watch shows during the hang | Meaning |
+|---|---|
+| stall: `reading <reg>` | an MMIO read never completes; the GT/uncore is wedged at the bus level, and Apple's thread is likely stuck the same way |
+| stall: `starved` | the sampler is not scheduled: a thread spinning with preemption disabled (check the VM's vCPU count) |
+| samples continue, RCS ring drained (head = tail), GT interrupt pending (`gtIntrDw0` set, not cleared) | the GPU executed the stamps and raised its interrupt, which nothing serviced: interrupt delivery (standalone "Local Filter Interrupt Source") is the blocker |
+| samples continue, RCS has queued work and `ACTHD` is frozen | the engine is stuck executing: GPU-side (context, ring or memory setup) |
+| samples continue, RCS ring never valid / tail never moves | nothing was submitted: the wait is earlier, CPU-side |
+| CSB has unread entries | execlist events raised but not processed (same interrupt question) |
 
 3. **Guest, `gt-reset-probe` before `igpu-start`:** its forcewake (bit 0)
    read. 1/3 in the guest → the VM can wake the GT and the difference is

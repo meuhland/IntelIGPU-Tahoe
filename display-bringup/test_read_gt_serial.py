@@ -70,7 +70,7 @@ class Decoder(unittest.TestCase):
     def test_forcewake_never_acked_and_display_lost(self):
         lines = [line(0, 0, **LIT), line(20, 5000, fwAckGT=0x1), line(40, 10000, fwAckGT=0x1)]
         out = "\n".join(R.summary(R.parse("\n".join(lines))[1]))
-        self.assertIn("bit 1 not acknowledged", out)
+        self.assertIn("not acknowledged on GT and/or Render", out)
         self.assertIn("Pipe A was active at the start and is not now", out)
         self.assertIn("Plane 1A moved from 0x01000000 to 0x00000000", out)
 
@@ -107,6 +107,33 @@ class Decoder(unittest.TestCase):
         self.assertIn("1 changed", text)
         self.assertIn("gucStatus: 0x00000000", text)
         self.assertIn("bootrom=0x00 ukernel=0x02", text)
+
+    def test_forcewake_any_requester_bit(self):
+        held = dict(LIT, fwAckGT=0x4, fwAckRender=0x6)  # hold probe bit 2, Apple bit 1
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **held), line(1, 250, **held)]))[1]))
+        self.assertIn("forcewake: acknowledged (GT awake; GT requester bits 0x4)", out)
+        self.assertIn("acked, requester bits 0x6", R.describe("fwAckRender", 6))
+
+    def test_pending_gt_interrupt(self):
+        irq = dict(LIT, **AWAKE, gtIntrDw0=0x1, gfxMstrIrq=0x80000001)
+        lines = [line(0, 0, **LIT), line(4, 1000, **irq), line(24, 6000, **irq), line(44, 11000, **irq)]
+        out = "\n".join(R.summary(R.parse("\n".join(lines))[1]))
+        self.assertIn("GT interrupt pending and not serviced over the last 3 samples", out)
+        self.assertIn("master enabled, pending: GT DW0", out)
+        quiet = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **LIT), line(1, 250, **LIT)]))[1]))
+        self.assertNotIn("GT interrupt pending", quiet)
+
+    def test_stall_lines(self):
+        text = "\n".join([line(0, 0, **LIT),
+                          "ReimsGT stall seq 12 ms 34567 reading rcsHead 0x002034 for 2250 ms",
+                          "ReimsGT stall seq 12 ms 39567 reading rcsHead 0x002034 for 7250 ms"])
+        found = R.stalls(text)
+        self.assertEqual(found[-1], (12, 39567, "rcsHead", 0x2034, 7250))
+        self.assertIn("STUCK in a register read: rcsHead (0x002034)", R.stall_summary(found)[0])
+        starved = R.stalls("ReimsGT stall seq 3 ms 900 starved for 3000 ms")
+        self.assertIn("STARVED", R.stall_summary(starved)[0])
+        self.assertEqual(R.stall_summary([]), [])
+        self.assertEqual(len(R.parse(text)[1]), 1)  # stall lines are not samples
 
     def test_empty_log(self):
         self.assertIn("No ReimsGT samples", R.summary([])[0])

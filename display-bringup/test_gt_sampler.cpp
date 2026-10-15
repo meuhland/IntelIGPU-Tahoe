@@ -19,12 +19,14 @@ int main(){
  // Line format: fixed order, 8 hex digits per register, fits the kext buffer.
  Sample s;for(unsigned i=0;i<count;++i)s.v[i]=0x11111111U*(i%16);
  s.v[0]=0x00010001;s.v[2]=0x8000f0f4;
- char line[320];const size_t n=format(line,sizeof(line),7,1234,s);
+ char line[lineBuffer];const size_t n=format(line,sizeof(line),7,1234,s);
  CHECK(n<sizeof(line)&&strlen(line)==n);
  CHECK(!strncmp(line,"ReimsGT 7 1234 00010001 11111111 8000f0f4 ",42));
  CHECK(line[n-1]=='\n');
- char head[320];const size_t h=header(head,sizeof(head));
+ char head[lineBuffer];const size_t h=header(head,sizeof(head));
  CHECK(h<sizeof(head)&&!strncmp(head,"ReimsGT seq ms fwAckGT fwAckRender gucStatus ",45));
+ // Worst case (max seq and ms) and the header fit the kext buffer.
+ {char w[lineBuffer];CHECK(format(w,sizeof(w),0xffffffffu,~0ull,s)<sizeof(w));}
  // Truncation stays NUL-terminated.
  char tiny[16];format(tiny,sizeof(tiny),1,2,s);CHECK(strlen(tiny)==15);
 

@@ -23,6 +23,13 @@ constexpr Reg regs[]={
  {0x0020d0,"rcsReset"},{0x00209c,"rcsMiMode"},
  {0x022034,"bcsHead"},{0x022030,"bcsTail"},{0x02203c,"bcsCtl"},{0x022074,"bcsActhd"},
  {0x0040a0,"errorGen6"},{0x00cec4,"ringFault"},
+ // Interrupt path (2026-10-15: is a GT interrupt raised and left unserviced
+ // while start waits?). Plain reads; i915 clears these only by writing back.
+ // i915_reg.h GEN11_GFX_MSTR_IRQ; intel_gt_regs.h GEN11_GT_INTR_DW(0/1),
+ // GEN11_RENDER_COPY_INTR_ENABLE; intel_engine_regs.h RING_IMR/EIR/ESR/HWS_PGA.
+ {0x190010,"gfxMstrIrq"},{0x190018,"gtIntrDw0"},{0x19001c,"gtIntrDw1"},
+ {0x190030,"rcsBcsIntrEn"},{0x0020a8,"rcsImr"},{0x0020b0,"rcsEir"},
+ {0x0020b8,"rcsEsr"},{0x002080,"rcsHwsPga"},
  {0x070008,"transconfA"},{0x0701ac,"surfLiveA"},
  // GGTT PTE of the bring-up's first framebuffer page (GGTT 0x01000000):
  // ggttBase 0x800000 + (0x01000000 >> 12) * 8, as hdmi_scanout.hpp writes it.
@@ -33,6 +40,8 @@ constexpr unsigned count=sizeof(regs)/sizeof(regs[0]);
 constexpr uint32_t maxOffset(){uint32_t m=0;for(const auto&r:regs)if(r.offset>m)m=r.offset;return m;}
 
 struct Sample {uint32_t v[count]={};};
+// Kext line buffer for format()/header(); the test checks the worst case fits.
+constexpr size_t lineBuffer=512;
 
 // Print policy: every sample that differs from the last printed one, plus a
 // heartbeat (an unchanged GT then reads as "frozen", not as "sampler dead"),

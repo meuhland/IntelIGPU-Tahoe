@@ -54,6 +54,35 @@ silently (no reset, timeout or panic in 3–4 minutes). Details: PORT doc
 "Forcewake hold on hardware". Stage 3 was skipped (see below); it is not
 needed for the accelerator tests.
 
+### Next window: watch the hang
+
+Same sequence as above (hold probe, then `igpu-start` with candidate
+`3a7cfb99`), with a rebuilt hold probe that now also runs the GT watch
+([PORT-RPLS-UHD770.md](PORT-RPLS-UHD770.md), "GT watch for the hang"): while
+loaded it prints the GT registers to serial every 250 ms when they change
+(5 s heartbeat), and a `ReimsGT stall` line if its sampler gets stuck in a
+register read. It is a new binary (it now also links `com.apple.kpi.mach`),
+so build it and pre-load it once before the window, as above.
+
+1. Host: serial capture running (VM-PREP-RPLS.md 9b; only one reader on the
+   socket).
+2. Guest: load the hold probe, `read_gt_reset.py` (expect the first row
+   above and `ReimsGTWatch: True`), then `igpu-start`. On serial, a
+   `ReimsGT seq ms …` header and sample lines appear before Apple's
+   `[IGPU]` lines.
+3. When `igpu-start` hangs, leave it for 60 s so the watch records the
+   steady state, then `Ctrl-C` and save the capture. Do not unload the probe
+   if the log shows a `ReimsGT stall … reading` line (the unload would touch
+   the same stuck BAR); reboot the guest instead.
+4. Decode, on any machine with the repo or a copy of the script:
+   `python3 display-bringup/read_gt_serial.py <capture>`. The summary's last
+   lines map to the PORT doc's "Reading the hang" table: a stuck read, a
+   starved sampler, a pending GT interrupt nobody serviced, an engine with
+   queued work and a frozen `ACTHD`, or a ring that never received work.
+
+Also record the VM's vCPU count (`qm config 113 | grep -E 'cores|sockets'`);
+it matters if the watch reports `starved`.
+
 ## In the window
 
 Stop at the first unexpected result and save evidence. A hang in step 4 only
