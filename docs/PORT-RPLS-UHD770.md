@@ -722,6 +722,9 @@ Next, cheapest first:
    Step 3 separates the two.
 2. **Host, Apple's requester bit:** `coldgt_check.py flr forcewake --wake
    --fw-bit 1` — confirms bit 1 wakes this GT after the reset QEMU applies.
+   **Result 2026-10-15:** with `--fw-bit 1`, post-FLR raw read all zero,
+   then render and GT both ack and the forcewake read is 1/3/`0xe00fa`.
+   Apple's requester bit wakes this GT fine after QEMU's reset, on the host.
 3. **Guest, `gt-reset-probe` before `igpu-start`:** its forcewake (bit 0)
    read. 1/3 in the guest → the VM can wake the GT and the difference is
    Apple's path; 0 even with acks → the GT cannot wake in the guest.
