@@ -12,6 +12,8 @@
 #include <kern/clock.h>
 #include <mach/thread_act.h>
 #include "gt_watch.hpp"
+#include "gt_ctxdump.hpp"
+#include <IOKit/IOMemoryDescriptor.h>
 #endif
 
 // Phase-6 GT-reset probe (gt_reset.hpp). Default build is read-only: it reads
@@ -71,10 +73,58 @@ static void watchExit(GTWatch*w){
  __atomic_fetch_add(&w->exited,1u,__ATOMIC_ACQ_REL);
  thread_terminate(current_thread());
 }
+// gt_ctxdump.hpp: print the first dwords of the submitted context's first
+// pages (guest-physical memory behind its GGTT PTEs). Memory reads only.
+// Print the PTE and the first dwords of one GGTT page (label: context page
+// 0/1, or ReimsCtxDump::ringPage for the ring). words receives what was read.
+static void dumpGgttPage(BarIO&io,uint64_t barLength,uint32_t lrca,unsigned label,uint32_t gttPage,
+                         uint32_t*words){
+ char line[ReimsGTSampler::lineBuffer];
+ const uint64_t off=uint64_t(ReimsGTSampler::ggttBase)+uint64_t(gttPage>>12)*8;
+ if(off+8>barLength){IOLog("ReimsGT ctx %08x p%u pte outside BAR\n",lrca,label);return;}
+ const uint64_t pte=uint64_t(io.read(uint32_t(off+4)))<<32|io.read(uint32_t(off));
+ ReimsCtxDump::formatPte(line,sizeof(line),lrca,label,pte);IOLog("%s",line);
+ if(!ReimsCtxDump::pteValid(pte))return;
+ auto*md=IOMemoryDescriptor::withPhysicalAddress(IOPhysicalAddress(ReimsCtxDump::ptePhysical(pte)),4096,kIODirectionIn);
+ IOMemoryMap*map=md?md->map(kIOMapReadOnly):nullptr;
+ if(!map){IOLog("ReimsGT ctx %08x p%u map failed\n",lrca,label);OSSafeReleaseNULL(md);return;}
+ const auto*v=reinterpret_cast<const volatile uint32_t*>(map->getVirtualAddress());
+ for(unsigned first=0;first<ReimsCtxDump::dwords;first+=ReimsCtxDump::perLine){
+  uint32_t w[ReimsCtxDump::perLine];
+  for(unsigned i=0;i<ReimsCtxDump::perLine;++i){w[i]=v[first+i];if(words)words[first+i]=w[i];}
+  ReimsCtxDump::formatWords(line,sizeof(line),lrca,label,first,w,ReimsCtxDump::perLine);IOLog("%s",line);
+ }
+ map->release();md->release();
+}
+// Apple's GGTT allocation window (status page, contexts, rings, stamps).
+static void dumpGgttWindow(BarIO&io,uint64_t barLength){
+ char line[ReimsGTSampler::lineBuffer];
+ for(unsigned i=0;i<ReimsCtxDump::gttPages;i+=ReimsCtxDump::gttPerLine){
+  uint64_t pte[ReimsCtxDump::gttPerLine];unsigned n=0;
+  for(;n<ReimsCtxDump::gttPerLine&&i+n<ReimsCtxDump::gttPages;++n){
+   const uint64_t off=uint64_t(ReimsGTSampler::ggttBase)+(uint64_t(ReimsCtxDump::gttWindow>>12)+i+n)*8;
+   if(off+8>barLength)break;
+   pte[n]=uint64_t(io.read(uint32_t(off+4)))<<32|io.read(uint32_t(off));
+  }
+  if(!n)break;
+  ReimsCtxDump::formatGtt(line,sizeof(line),ReimsCtxDump::gttWindow+i*4096u,pte,n);IOLog("%s",line);
+ }
+}
+static void dumpContext(BarIO&io,uint64_t barLength,uint32_t lrca,bool first){
+ uint32_t state[ReimsCtxDump::dwords]={};
+ dumpGgttPage(io,barLength,lrca,0,lrca,nullptr);
+ dumpGgttPage(io,barLength,lrca,1,lrca+4096,state);
+ uint32_t ringStart=0;
+ if(ReimsCtxDump::findLri(state,ReimsCtxDump::dwords,ReimsCtxDump::lriRingStart,ringStart)&&(ringStart&~0xfffu))
+  dumpGgttPage(io,barLength,lrca,ReimsCtxDump::ringPage,ringStart&~0xfffu,nullptr);
+ if(first)dumpGgttWindow(io,barLength);
+}
 // Reads only. Fills the buffer the reporter is not reading, then publishes.
 static void watchSampler(void*arg,wait_result_t){
  auto*w=static_cast<GTWatch*>(arg);
  BarIO io{w->base};
+ ReimsCtxDump::Tracker dumped;
+ bool dumpedWindow=false;
  while(!__atomic_load_n(&w->stop,__ATOMIC_ACQUIRE)){
   const uint32_t next=__atomic_load_n(&w->shared.seq,__ATOMIC_RELAXED)+1;
   auto&b=w->shared.buf[next&1];
@@ -84,6 +134,10 @@ static void watchSampler(void*arg,wait_result_t){
   }
   __atomic_store_n(&w->shared.reading,-1,__ATOMIC_RELEASE);
   __atomic_store_n(&w->shared.seq,next,__ATOMIC_RELEASE);
+  if(dumped.shouldDump(b.v[ReimsGTSampler::sq0Index])){
+   dumpContext(io,w->length,ReimsCtxDump::lrcaOf(b.v[ReimsGTSampler::sq0Index]),!dumpedWindow);
+   dumpedWindow=true;
+  }
   IOSleep(250);
  }
  watchExit(w);

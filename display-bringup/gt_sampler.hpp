@@ -20,7 +20,7 @@
 namespace ReimsGTSampler {
 // derive: 0 = read offset; 1/2 = low/high dword of the GGTT PTE that the
 // already-sampled RCS status-page address (rcsHwsPga) points at; 3/4 = the
-// same for the context address (LRCA) in rcsElst0Lo.
+// same for the context address (LRCA) in rcsSq0Lo.
 struct Reg {uint32_t offset;const char*name;uint8_t derive=0;};
 constexpr uint32_t ggttBase=0x800000;  // BAR0 upper half, as hdmi_scanout.hpp
 constexpr Reg regs[]={
@@ -51,13 +51,16 @@ constexpr Reg regs[]={
  {0,"hwsPteLo",1},{0,"hwsPteHi",2},
  {ggttBase,"ggttPte0Lo"},{ggttBase+4,"ggttPte0Hi"},
  // The submitted context (2026-10-16: CAT_ERROR on context load, ring regs
- // never restored, CONTEXT_CONTROL first). Offsets and names from Apple's own
- // IGHardwareRingBuffer::dumpRegistersRCS: RCS_ELST0/1 (execlist element
- // descriptor, LRCA in bits 31:12), RCS_PDP0_DESCRIPTOR (PPGTT root restored
- // from the context; PML4 for 4-level), GFX_MODE, STATUS_CTXT_ST_PTR.
- // lrcaPte: the GGTT PTE of the LRCA in rcsElst0Lo (derived, like hwsPte).
- {0x002250,"rcsElst0Lo"},{0x002254,"rcsElst0Hi"},{0x002260,"rcsElst1Lo"},{0x002264,"rcsElst1Hi"},
- {0x002270,"rcsPdp0Lo"},{0x002274,"rcsPdp0Hi"},{0x00229c,"rcsGfxMode"},{0x00223c,"rcsCtxStPtr"},
+ // never restored, CONTEXT_CONTROL first). Apple's
+ // IGHardwareCommandStreamer5::submitExecList writes two 64-bit element
+ // descriptors to kIGHwCsDesc+0x19 and 1 to +0x1d: for RCS 0x2510 and
+ // 0x2550, i915 RING_EXECLIST_SQ_CONTENTS / RING_EXECLIST_CONTROL. Element 0
+ // low dword = LRCA (bits 31:12) | flags. lrcaPte: the GGTT PTE of that LRCA
+ // (derived, like hwsPte). GFX_MODE (0x229c, RING_MODE_GEN7) stays: Apple's
+ // initModeRegisters clears GEN11_GFX_DISABLE_LEGACY_MODE there, as on ADL-P.
+ // (RCS_ELST0/1, PDP0 and STATUS_CTXT_ST_PTR, sampled once, read 0 on Gen12.)
+ {0x002510,"rcsSq0Lo"},{0x002514,"rcsSq0Hi"},{0x002518,"rcsSq1Lo"},{0x00251c,"rcsSq1Hi"},
+ {0x00229c,"rcsGfxMode"},
  {0,"lrcaPteLo",3},{0,"lrcaPteHi",4},
  {0x070008,"transconfA"},{0x0701ac,"surfLiveA"},
  // GGTT PTE of the bring-up's first framebuffer page (GGTT 0x01000000):
@@ -76,17 +79,17 @@ constexpr int indexOf(const char*name){
  return -1;
 }
 constexpr int hwsIndex=indexOf("rcsHwsPga");
-constexpr int elst0Index=indexOf("rcsElst0Lo");
+constexpr int sq0Index=indexOf("rcsSq0Lo");
 // Derived reads that would fall outside the mapped BAR read as this marker.
 constexpr uint32_t outsideBar=0xffffffffu;
 
 // Read column i. Plain columns read their offset; derived ones use the
-// GGTT address already read into soFar (rcsHwsPga or rcsElst0Lo, which
+// GGTT address already read into soFar (rcsHwsPga or rcsSq0Lo, which
 // precede them in regs[]).
 template<class Read> inline uint32_t readColumn(unsigned i,const uint32_t*soFar,uint64_t mapLength,Read&&read){
  const Reg&r=regs[i];
  if(!r.derive)return read(r.offset);
- const uint32_t gtt=soFar[r.derive<=2?hwsIndex:elst0Index];
+ const uint32_t gtt=soFar[r.derive<=2?hwsIndex:sq0Index];
  const uint64_t off=uint64_t(ggttBase)+uint64_t(gtt>>12)*8+((r.derive&1)?0:4);
  return off+4<=mapLength?read(uint32_t(off)):outsideBar;
 }

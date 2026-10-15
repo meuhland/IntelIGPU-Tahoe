@@ -29,10 +29,10 @@ int main(){
   CHECK(readColumn(unsigned(lo),soFar,0x1000000,read)==0x5a5a0001u&&asked==0xfffff8);
   asked=0;CHECK(readColumn(unsigned(lo),soFar,0x900000,read)==outsideBar&&asked==0);
   const int p0=indexOf("ggttPte0Lo");CHECK(p0>0&&regs[p0].offset==ggttBase&&!regs[p0].derive);
-  // LRCA PTE: derived from rcsElst0Lo, which precedes it.
+  // LRCA PTE: derived from rcsSq0Lo, which precedes it.
   const int llo=indexOf("lrcaPteLo"),lhi=indexOf("lrcaPteHi");
-  CHECK(elst0Index>=0&&llo>elst0Index&&lhi==llo+1&&regs[llo].derive==3&&regs[lhi].derive==4);
-  soFar[elst0Index]=0x40008019;  // LRCA GGTT 0x40008000 + descriptor flags
+  CHECK(sq0Index>=0&&llo>sq0Index&&lhi==llo+1&&regs[llo].derive==3&&regs[lhi].derive==4);
+  soFar[sq0Index]=0x40008019;  // LRCA GGTT 0x40008000 + descriptor flags
   CHECK(readColumn(unsigned(llo),soFar,0x1000000,read)==0x5a5a0001u&&asked==0x800000+0x40008*8);
   CHECK(readColumn(unsigned(lhi),soFar,0x1000000,read)==0x5a5a0001u&&asked==0x800000+0x40008*8+4);
   CHECK(indexOf("noSuchRegister")==-1);}

@@ -31,8 +31,8 @@ DEFAULT_NAMES = [
     "faultTlb0", "faultTlb1",
     "hwsPteLo", "hwsPteHi",
     "ggttPte0Lo", "ggttPte0Hi",
-    "rcsElst0Lo", "rcsElst0Hi", "rcsElst1Lo", "rcsElst1Hi",
-    "rcsPdp0Lo", "rcsPdp0Hi", "rcsGfxMode", "rcsCtxStPtr",
+    "rcsSq0Lo", "rcsSq0Hi", "rcsSq1Lo", "rcsSq1Hi",
+    "rcsGfxMode",
     "lrcaPteLo", "lrcaPteHi",
     "transconfA", "surfLiveA",
     "fbPteLo", "fbPteHi",
@@ -49,6 +49,21 @@ SAMPLE = re.compile(r"ReimsGT (\d+) (\d+)(?: @(\d+))?((?: [0-9a-f]{8})+)(?: [0-9
 CONSOLE_LINE = 255
 # gt-reset-probe hold build (gt_watch.hpp): the sampler thread stopped advancing.
 STALL = re.compile(r"ReimsGT stall seq (\d+) ms (\d+) (?:reading (\w+) 0x([0-9a-f]+)|starved) for (\d+) ms")
+# gt-reset-probe hold build (gt_ctxdump.hpp): the submitted context's pages.
+CTX_PTE = re.compile(r"ReimsGT ctx ([0-9a-f]{8}) p(\d) pte ([0-9a-f]{16})")
+CTX_WORDS = re.compile(r"ReimsGT ctx ([0-9a-f]{8}) p(\d) @(\d+)((?: [0-9a-f]{8})+)")
+# MI_LOAD_REGISTER_IMM (i915 intel_gpu_commands.h): opcode 0x22 in bits 31:23,
+# length 2n-1 in bits 7:0; MI_LRI_LRM_CS_MMIO (bit 19) makes offsets engine-relative.
+MI_LRI_OPCODE, MI_LRI_CS_MMIO = 0x22, 1 << 19
+# Engine-relative offsets of the registers a Gen12 RCS context restores
+# (i915 intel_lrc_reg.h CTX_* order: CONTEXT_CONTROL, ring, ..., PDPs).
+CTX_REG_NAMES = {
+    0x244: "CONTEXT_CONTROL", 0x034: "RING_HEAD", 0x030: "RING_TAIL", 0x038: "RING_START",
+    0x03c: "RING_CTL", 0x168: "BB_ADDR_UDW", 0x140: "BB_ADDR", 0x110: "BB_STATE",
+    0x1c0: "BB_PER_CTX_PTR", 0x1c4: "INDIRECT_CTX", 0x1c8: "INDIRECT_CTX_OFFSET",
+    0x3a8: "CTX_TIMESTAMP", 0x28c: "PDP3_UDW", 0x288: "PDP3_LDW", 0x284: "PDP2_UDW",
+    0x280: "PDP2_LDW", 0x27c: "PDP1_UDW", 0x278: "PDP1_LDW", 0x274: "PDP0_UDW", 0x270: "PDP0_LDW",
+}
 
 # Forcewake: TGL's native SafeForceWake requests with index 1 (bit 1,
 # ReimsADLDesktopLink.cpp kForceWakeBit); the gt-reset-probe hold build uses
@@ -282,22 +297,21 @@ def summary(samples):
                    f"0x{pte(s, 'hwsPte'):016x} ({'valid' if valid else 'NOT valid'}, physical 0x{addr:x})"
                    + (": the GPU's status-page writes go to physical 0 (cf. a host DMAR write at 0x0)."
                       if valid and addr == 0 else "."))
-    if all(k in s for k in ("rcsElst0Lo", "lrcaPteLo", "lrcaPteHi")):
-        lrca = s["rcsElst0Lo"] & 0xFFFFF000
+    if all(k in s for k in ("rcsSq0Lo", "lrcaPteLo", "lrcaPteHi")):
+        lrca = s["rcsSq0Lo"] & 0xFFFFF000
         if s["lrcaPteLo"] == 0xFFFFFFFF:
-            out.append(f"  RCS context (ELST0 0x{s['rcsElst0Lo']:08x}, LRCA 0x{lrca:08x}): PTE outside the mapped BAR.")
+            out.append(f"  RCS context (SQ0 0x{s['rcsSq0Lo']:08x}, LRCA 0x{lrca:08x}): PTE outside the mapped BAR.")
+        elif lrca == 0:
+            out.append("  RCS context: submit queue reads 0 (no descriptor latched or not readable).")
         else:
             valid, addr = s["lrcaPteLo"] & 1, pte_address(s, "lrcaPte")
-            out.append(f"  RCS context (ELST0 0x{s['rcsElst0Hi']:08x}_{s['rcsElst0Lo']:08x}, LRCA GGTT 0x{lrca:08x}) "
+            out.append(f"  RCS context (SQ0 0x{s['rcsSq0Hi']:08x}_{s['rcsSq0Lo']:08x}, LRCA GGTT 0x{lrca:08x}) "
                        f"-> PTE 0x{pte(s, 'lrcaPte'):016x} ({'valid' if valid else 'NOT valid'}, physical 0x{addr:x})"
                        + (": the context image is read from and saved to physical 0 (cf. the DMAR write at 0x0)."
-                          if valid and addr == 0 else
-                          ("; no context submitted (ELST0 is 0)." if lrca == 0 else ".")))
-    if all(k in s for k in ("rcsPdp0Lo", "rcsPdp0Hi")):
-        root = (s["rcsPdp0Hi"] << 32 | s["rcsPdp0Lo"]) & 0x7FFFFFF000
-        out.append(f"  RCS PPGTT root (PDP0 descriptor, PML4 for 4-level): 0x{s['rcsPdp0Hi']:08x}_{s['rcsPdp0Lo']:08x}"
-                   + (" -> page walks start at physical 0." if root == 0 and "rcsElst0Lo" in s and s["rcsElst0Lo"] else
-                      f" -> physical 0x{root:x}."))
+                          if valid and addr == 0 else "."))
+    if "rcsGfxMode" in s:
+        out.append(f"  RCS GFX_MODE 0x{s['rcsGfxMode']:08x} (bit 3 DISABLE_LEGACY_MODE "
+                   f"{'set' if s['rcsGfxMode'] & 8 else 'clear, as Apple initModeRegisters writes it'}).")
     if all(k in s for k in ("ggttPte0Lo", "ggttPte0Hi")):
         out.append(f"  GGTT entry 0: 0x{pte(s, 'ggttPte0'):016x} "
                    f"({'valid' if s['ggttPte0Lo'] & 1 else 'NOT valid'}, physical 0x{pte_address(s, 'ggttPte0'):x}).")
@@ -435,6 +449,147 @@ def hang_verdict(samples, msi_count_rose=None):
     return out
 
 
+def context_dumps(text):
+    """{lrca: {page: {"pte": int or None, "words": {index: value}}}} from ReimsGT ctx lines."""
+    out = {}
+    for m in CTX_PTE.finditer(text):
+        page = out.setdefault(int(m.group(1), 16), {}).setdefault(int(m.group(2)), {"pte": None, "words": {}})
+        page["pte"] = int(m.group(3), 16)
+    for m in CTX_WORDS.finditer(text):
+        page = out.setdefault(int(m.group(1), 16), {}).setdefault(int(m.group(2)), {"pte": None, "words": {}})
+        for i, v in enumerate(m.group(4).split()):
+            page["words"][int(m.group(3)) + i] = int(v, 16)
+    return out
+
+
+def decode_lri(words):
+    """[(offset, value)] from the MI_LOAD_REGISTER_IMM blocks in a dword list."""
+    regs, i = [], 0
+    while i < len(words):
+        w = words[i]
+        if w >> 23 == MI_LRI_OPCODE:
+            n = ((w & 0xFF) + 1) // 2
+            for k in range(n):
+                if i + 2 + 2 * k < len(words):
+                    regs.append((words[i + 1 + 2 * k], words[i + 2 + 2 * k]))
+            i += 1 + 2 * n
+        else:
+            i += 1
+    return regs
+
+
+GTT_LINE = re.compile(r"ReimsGT gtt ([0-9a-f]{8})((?: [0-9a-f]{16})+)")
+# MI opcodes (bits 28:23 with client bits 31:29 = 0) and PIPE_CONTROL, from
+# i915 intel_gpu_commands.h; enough to read what Apple queued in the ring.
+MI_NAMES = {0x00: "MI_NOOP", 0x02: "MI_USER_INTERRUPT", 0x05: "MI_ARB_CHECK", 0x08: "MI_ARB_ON_OFF",
+            0x0A: "MI_BATCH_BUFFER_END", 0x1C: "MI_SEMAPHORE_WAIT", 0x20: "MI_STORE_DATA_IMM",
+            0x22: "MI_LOAD_REGISTER_IMM", 0x24: "MI_STORE_REGISTER_MEM", 0x26: "MI_FLUSH_DW",
+            0x29: "MI_LOAD_REGISTER_MEM", 0x31: "MI_BATCH_BUFFER_START"}
+
+
+def command_name(dw):
+    if dw >> 29 == 0:
+        return MI_NAMES.get((dw >> 23) & 0x3F, f"MI_0x{(dw >> 23) & 0x3F:02x}")
+    if dw >> 16 == 0x7A00:
+        return "PIPE_CONTROL"
+    return f"cmd 0x{dw:08x}"
+
+
+def ring_commands(words):
+    """[(dword index, name)] walking the ring from dword 0 (MI length = low 8 bits + 2)."""
+    out, i = [], 0
+    while i < len(words):
+        dw = words[i]
+        name = command_name(dw)
+        out.append((i, name))
+        if dw >> 29 == 0:
+            op = (dw >> 23) & 0x3F
+            i += 1 if op < 0x10 else (dw & 0xFF) + 2
+        elif dw >> 16 == 0x7A00:
+            i += (dw & 0xFF) + 2
+        else:
+            i += 1
+    return out
+
+
+def gtt_window(text):
+    """{gtt address: pte} from ReimsGT gtt lines."""
+    out = {}
+    for m in GTT_LINE.finditer(text):
+        base = int(m.group(1), 16)
+        for i, v in enumerate(m.group(2).split()):
+            out[base + i * 4096] = int(v, 16)
+    return out
+
+
+def gtt_summary(window):
+    if not window:
+        return []
+    valid = {a: p for a, p in window.items() if p & 1}
+    zero = [a for a, p in valid.items() if not p & 0x7FFFFFF000]
+    out = [f"GGTT window 0x{min(window):08x}-0x{max(window) + 4095:08x}: {len(valid)} of {len(window)} entries valid"]
+    if zero:
+        out.append(f"  {len(zero)} valid entr{'y' if len(zero) == 1 else 'ies'} pointing at physical 0: "
+                   + ", ".join(f"0x{a:08x}" for a in sorted(zero)[:16]))
+    runs, start, prev = [], None, None
+    for a in sorted(valid):
+        phys = valid[a] & 0x7FFFFFF000
+        if start is None or a != prev[0] + 4096 or phys != prev[1] + 4096:
+            if start is not None:
+                runs.append((start, prev[0], prev[1]))
+            start = (a, phys)
+        prev = (a, phys)
+    if start is not None:
+        runs.append((start, prev[0], prev[1]))
+    for (a0, p0), a1, p1 in runs[:24]:
+        out.append(f"  GGTT 0x{a0:08x}-0x{a1 + 4095:08x} -> physical 0x{p0:x}" + ("" if a0 == a1 else f" .. 0x{p1:x}"))
+    if len(runs) > 24:
+        out.append(f"  ... {len(runs) - 24} more runs")
+    return out
+
+
+def context_summary(dumps):
+    out = []
+    for lrca, pages in sorted(dumps.items()):
+        out.append(f"Submitted context LRCA GGTT 0x{lrca:08x}:")
+        for pn in sorted(pages):
+            p = pages[pn]
+            words = [p["words"].get(i, 0) for i in range(max(p["words"], default=-1) + 1)]
+            pte = p["pte"]
+            where = (f"PTE 0x{pte:016x} ({'valid' if pte & 1 else 'NOT valid'}, physical 0x{pte & 0x7FFFFFF000:x})"
+                     if pte is not None else "PTE not logged")
+            kind = {0: "per-process status page", 1: "register state", 2: "ring buffer (from RING_START)"}.get(pn, f"page {pn}")
+            out.append(f"  page {pn} ({kind}): {where}; {len(words)} dwords"
+                       + (", ALL ZERO" if words and not any(words) else ""))
+            if pte is not None and pte & 1 and not pte & 0x7FFFFFF000:
+                out.append("    -> this page is guest-physical 0: the engine reads/writes the context at address 0.")
+            if pn == 2 and words:
+                cmds = ring_commands(words)
+                out.append("    commands: " + ", ".join(f"@{i} {n}" for i, n in cmds[:24])
+                           + (" ..." if len(cmds) > 24 else ""))
+                continue
+            if pn != 1 or not words:
+                continue
+            regs = decode_lri(words)
+            if not regs:
+                out.append("    no MI_LOAD_REGISTER_IMM found: not a context register-state page.")
+                continue
+            for off, val in regs:
+                name = CTX_REG_NAMES.get(off & 0xFFF, "")
+                out.append(f"    LRI 0x{off:05x} {name:<18} = 0x{val:08x}")
+            named = {CTX_REG_NAMES.get(off & 0xFFF): val for off, val in regs}
+            if "RING_CTL" in named and not named["RING_CTL"] & RING_VALID:
+                out.append("    -> RING_CTL in the image has no valid bit: restoring this context leaves no ring "
+                           "(matches ring registers staying 0 and CAT_ERROR).")
+            if "RING_START" in named:
+                out.append(f"    -> ring buffer at GGTT 0x{named['RING_START'] & 0xFFFFF000:08x}.")
+            if "PDP0_LDW" in named:
+                root = (named.get("PDP0_UDW", 0) << 32 | named["PDP0_LDW"]) & 0x7FFFFFF000
+                out.append(f"    -> PPGTT root (PDP0) physical 0x{root:x}"
+                           + (": page walks start at physical 0." if root == 0 else "."))
+    return out
+
+
 def main(argv):
     args = argv[1:]
     msi = None
@@ -447,7 +602,7 @@ def main(argv):
         text = f.read()
     _, samples = parse(text)
     print("\n".join(timeline(samples) + [""] + summary(samples) + stall_summary(stalls(text))
-                    + [""] + hang_verdict(samples, msi)))
+                    + [""] + hang_verdict(samples, msi) + [""] + context_summary(context_dumps(text)) + gtt_summary(gtt_window(text))))
 
 
 if __name__ == "__main__":

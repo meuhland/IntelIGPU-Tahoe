@@ -1210,6 +1210,60 @@ gate `2DF3A522`. Guest probe read: held fuses 1/3/0/`0xe00fa`, both acks,
 Evidence: `~/work/igpu-notes/window-20261015-decode-d23b.txt` (guest);
 capture on the Proxmox host.
 
+**Interpretation (offline, 2026-10-15) and what the binary says about the hang.**
+
+- `RCS_ELST0/1` (`0x2250/0x2260`), `PDP0` (`0x2270`) and
+  `STATUS_CTXT_ST_PTR` (`0x223c`) read 0 throughout: on Gen12 these
+  Gen8-era registers do not show the submitted context. Dropped from the
+  sampler.
+- `GFX_MODE` (`0x229c`) = 0 is **Apple's normal state**, not a VM fault.
+  `IntelAccelerator::initModeRegisters` (`0x28e1a`, from `startGraphicsEngine`
+  under `SafeForceWake(true,7)`) writes `0x00080000` to each engine's mode
+  register (`kIGHwCsDesc+0x39`, `0x229c` for RCS). That is i915's
+  `_MASKED_BIT_DISABLE(GEN11_GFX_DISABLE_LEGACY_MODE)`, where i915 enables it.
+  It is the only writer of `0x229c`, and the working ADL-P setup runs the
+  same code with the same forced host scheduler (`GraphicsSchedulerSelect`
+  5). The ADL-P accelerator very likely starts standalone too (DesktopLink's
+  framebuffer is created at the display commit and answers `ra` with
+  Unsupported), so neither difference is the VM-specific cause.
+- **How Apple submits** (`IGHardwareCommandStreamer5::submitExecList`,
+  `0x3a65a`): two 64-bit element descriptors (context object `+0x89`, low
+  dword LRCA | flags, high dword context ID) to `kIGHwCsDesc+0x19`, then `1`
+  to `+0x1d`. For RCS those are `0x2510` and `0x2550`, i915's
+  `RING_EXECLIST_SQ_CONTENTS` / `RING_EXECLIST_CONTROL` (`EL_CTRL_LOAD`).
+  `kIGHwCsDesc` (`0xdc5b0`, 0x79 bytes per engine) also holds `0x2234`
+  execlist status, `0x23a0`/`0x2370` CSB pointer/buffer, `0x2080` status
+  page, `0x229c` mode, `0x20d0` reset control, `0x20b0`/`0x20b4` EIR/EMR,
+  `0x2358` timestamp, and `0xa278`/`0xd84` forcewake request/ack.
+- **How Apple waits** (`IGHardwareRingBuffer::sleepForStamp`, `0x41fe4`): it
+  **polls a stamp value in memory** (`this+0x30`) every 100 µs
+  (`assert_wait_timeout`), with a 5 s timeout (`0x4c4b40` × 1000 ns; 500 s in
+  simulator mode). Not an interrupt. On timeout the caller
+  (`IGAccelFIFOChannel::resetHardwareAndReplay`) resets and replays, which is
+  the ~8 s reset-request cadence: an endless timeout → reset → replay loop
+  that `CAT_ERROR` never lets succeed. `PanicOnGPUHang` (property, fFlags bit
+  17) makes the timeout call `PE_enter_debugger`, which acts only with the
+  `debug` boot-arg's `DB_NMI` (`0x4`).
+- **Apple has a full hang analysis** that this path never runs:
+  `IGHardwareRingBuffer::debugGraphicsEngine` → `doHangAnalysis` +
+  `dumpHangAnalysis` (`dumpExecutionListStatus`, `dumpPageTableStatus`,
+  `dumpRingBuffer`, `dumpRegisters`, "Intel GPU Hang Summary"), written with
+  `drvErrLog` into a 64 KiB buffer at `this+0x8a8` and then
+  `signalHardwareError(eRestartRequest)`. It is reached only from
+  `waitTimeout` (ring-space waits), not from the stamp wait. A possible later
+  probe: call `dumpHangAnalysis` on Apple's ring buffer and print the buffer.
+
+**Next capture, built:** the sampler reads the submit queue
+(`0x2510–0x251c`, `rcsSq0Lo` etc.) and derives `lrcaPte` from it. When a new
+LRCA appears, the hold build dumps, once, through the GGTT entries and
+read-only mappings of guest memory: the context's page 0 (per-process
+status page) and page 1 (register state, decoded as the
+`MI_LOAD_REGISTER_IMM` list), the ring's first page from the restored
+`RING_START`, and the 256 GGTT entries from `0x40000000` (Apple's
+allocation window). The decoder prints the restore list (`CONTEXT_CONTROL`,
+`RING_*`, `PDP*`), the ring's commands, and the GGTT run list with any entry
+at physical 0. Host-tested; kexts syntax-checked.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.

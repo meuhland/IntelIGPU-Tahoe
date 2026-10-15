@@ -257,21 +257,67 @@ class Decoder(unittest.TestCase):
         self.assertIn("physical 0x17a001000).", out)
         self.assertIn("outside the mapped BAR", R.describe("hwsPteLo", 0xFFFFFFFF))
 
-    def test_context_and_ppgtt_root(self):
-        st = dict(LIT, **AWAKE, rcsElst0Lo=0x40008019, rcsElst0Hi=0x00000020, lrcaPteLo=0x00000003,
-                  lrcaPteHi=0, rcsPdp0Lo=0, rcsPdp0Hi=0)
+    def test_submitted_context_pte(self):
+        st = dict(LIT, **AWAKE, rcsSq0Lo=0x40008019, rcsSq0Hi=0x00000020, lrcaPteLo=0x00000003,
+                  lrcaPteHi=0, rcsGfxMode=0)
         out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **st), line(1, 250, **st)]))[1]))
         self.assertIn("LRCA GGTT 0x40008000) -> PTE 0x0000000000000003 (valid, physical 0x0)", out)
         self.assertIn("context image is read from and saved to physical 0", out)
-        self.assertIn("page walks start at physical 0", out)
-        ok = dict(st, lrcaPteLo=0x4b75808b, lrcaPteHi=1, rcsPdp0Lo=0x12345000, rcsPdp0Hi=1)
+        self.assertIn("GFX_MODE 0x00000000 (bit 3 DISABLE_LEGACY_MODE clear", out)
+        ok = dict(st, lrcaPteLo=0x4b75808b, lrcaPteHi=1)
         out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **ok), line(1, 250, **ok)]))[1]))
         self.assertIn("physical 0x14b758000).", out)
-        self.assertIn("-> physical 0x112345000.", out)
-        idle = dict(st, rcsElst0Lo=0, rcsElst0Hi=0, lrcaPteLo=0x4ff44b08b & 0xFFFFFFFF, lrcaPteHi=4)
+        idle = dict(st, rcsSq0Lo=0, rcsSq0Hi=0)
         out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **idle), line(1, 250, **idle)]))[1]))
-        self.assertIn("no context submitted (ELST0 is 0)", out)
-        self.assertNotIn("page walks start at physical 0", out)
+        self.assertIn("submit queue reads 0", out)
+
+    def test_context_dump_lri(self):
+        # Page 1 as i915 lays out a Gen12 RCS context: NOOP, LRI(13) with
+        # CONTEXT_CONTROL then the ring registers (engine-relative, CS_MMIO).
+        lri = (0x22 << 23) | (1 << 19) | (2 * 13 - 1)
+        page1 = [0, lri, 0x244, 0x00090009, 0x034, 0, 0x030, 0, 0x038, 0x40010000, 0x03c, 0x00007000,
+                 0x168, 0, 0x140, 0, 0x110, 0, 0x1c0, 0, 0x1c4, 0, 0x1c8, 0, 0x3a8, 0, 0x28c, 0]
+        page1 += [0] * (64 - len(page1))
+        lrca, lines = 0x40008000, []
+        lines.append(f"ReimsGT ctx {lrca:08x} p0 pte 000000014b75808b")
+        lines += [f"ReimsGT ctx {lrca:08x} p0 @{i} " + " ".join("00000000" for _ in range(8)) for i in range(0, 64, 8)]
+        lines.append(f"ReimsGT ctx {lrca:08x} p1 pte 0000000000000003")
+        lines += [f"ReimsGT ctx {lrca:08x} p1 @{i} " + " ".join(f"{w:08x}" for w in page1[i:i + 8])
+                  for i in range(0, 64, 8)]
+        dumps = R.context_dumps("\n".join(lines))
+        self.assertEqual(sorted(dumps[lrca]), [0, 1])
+        out = "\n".join(R.context_summary(dumps))
+        self.assertIn("page 0 (per-process status page): PTE 0x000000014b75808b (valid, physical 0x14b758000); "
+                      "64 dwords, ALL ZERO", out)
+        self.assertIn("page 1 (register state): PTE 0x0000000000000003 (valid, physical 0x0)", out)
+        self.assertIn("this page is guest-physical 0", out)
+        self.assertIn("LRI 0x00244 CONTEXT_CONTROL    = 0x00090009", out)
+        self.assertIn("LRI 0x0003c RING_CTL           = 0x00007000", out)
+        self.assertIn("RING_CTL in the image has no valid bit", out)
+        self.assertIn("ring buffer at GGTT 0x40010000", out)
+        self.assertEqual(R.decode_lri([0, 0, 0]), [])
+        self.assertIn("no MI_LOAD_REGISTER_IMM found", "\n".join(R.context_summary(
+            {1: {1: {"pte": 1, "words": {i: 0 for i in range(64)}}}})))
+
+    def test_ring_commands_and_gtt_window(self):
+        pc = (0x3 << 29) | (0x3 << 27) | (0x2 << 24) | (6 - 2)       # PIPE_CONTROL len 6
+        sdi = (0x20 << 23) | 2                                         # MI_STORE_DATA_IMM, 4 dwords
+        ring = [pc, 0, 0, 0, 0, 0, sdi, 0x40004000, 0, 0x1234, (0x02 << 23), 0, (0x0A << 23)]
+        names = R.ring_commands(ring)
+        self.assertEqual([n for _, n in names][:5],
+                         ["PIPE_CONTROL", "MI_STORE_DATA_IMM", "MI_USER_INTERRUPT", "MI_NOOP", "MI_BATCH_BUFFER_END"])
+        self.assertEqual(names[1][0], 6)
+        lines = ["ReimsGT gtt 40000000 " + " ".join(f"{p:016x}" for p in
+                                                  (0x14b70008b, 0x14b70108b, 0x0, 0x3, 0x14b75708b, 0x14b75808b))]
+        win = R.gtt_window("\n".join(lines))
+        self.assertEqual(win[0x40003000], 0x3)
+        out = "\n".join(R.gtt_summary(win))
+        self.assertIn("5 of 6 entries valid", out)
+        self.assertIn("GGTT 0x40003000-0x40003fff -> physical 0x0\n", out + "\n")
+        self.assertIn("GGTT 0x40004000-0x40005fff -> physical 0x14b757000 .. 0x14b758000", out)
+        self.assertIn("1 valid entry pointing at physical 0: 0x40003000", out)
+        self.assertIn("GGTT 0x40000000-0x40001fff -> physical 0x14b700000 .. 0x14b701000", out)
+        self.assertEqual(R.gtt_summary({}), [])
 
     def test_empty_log(self):
         self.assertIn("No ReimsGT samples", R.summary([])[0])

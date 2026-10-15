@@ -83,8 +83,20 @@ registers too; **rebuild the hold probe again** (pre-load once).
 Next run of this section, additions:
 
 - Each sample now shows on serial as six `ReimsGT <seq> <ms> @0/@10/…/@50 …`
-  lines (55 registers; the header as six `ReimsGT seq ms @… names` lines). None may
+  lines (52 registers; the header as six `ReimsGT seq ms @… names` lines). None may
   be cut: if a line ends mid-value, report it.
+- **New in this build: one-shot dumps at the first submission.** When the
+  submit queue (`0x2510`) first shows a context, the probe prints
+  `ReimsGT ctx <lrca> p0/p1 pte …` and `… @<n> …` lines (the context's
+  per-process status page and register-state page, read from guest memory
+  through their GGTT entries), `p2` lines (the first 64 dwords of the ring
+  from the restored `RING_START`, if any), and about 43 `ReimsGT gtt 40000000 …`
+  lines (Apple's GGTT window from 1 GiB). Expect roughly 70 extra lines at
+  once. The decoder prints "Submitted context LRCA GGTT …", the decoded
+  restore list (`CONTEXT_CONTROL`, `RING_*`, `PDP*`), the ring's commands,
+  and a "GGTT window …" run list with any entry at physical 0. If no
+  `ReimsGT ctx` line appears, the submit queue read back 0 (the summary line
+  "submit queue reads 0" says so).
 - **Note the wall-clock time of `igpu-start`** (`date` right before it). The
   2026-10-15 write-to-0 faults turned out to come at the first context
   submission, i.e. at `igpu-start`, not at the stop (PORT doc "DMAR timing
