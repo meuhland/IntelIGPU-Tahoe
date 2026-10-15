@@ -84,8 +84,10 @@ the hold probe** (new binary: pre-load once) before rerunning this section.
    steady state, then `Ctrl-C` and save the capture. Do not unload the probe
    if the log shows a `ReimsGT stall … reading` line (the unload would touch
    the same stuck BAR); reboot the guest instead.
-4. Decode, on any machine with the repo or a copy of the script:
-   `python3 display-bringup/read_gt_serial.py <capture> --msi flat` (or
+4. Decode on the Proxmox host, where the capture is (the script needs only
+   Python 3's standard library):
+   `curl -fsSL -o /root/read_gt_serial.py https://raw.githubusercontent.com/meuhland/IntelIGPU-Tahoe/uhd770-port/display-bringup/read_gt_serial.py`,
+   then `python3 /root/read_gt_serial.py /root/vm113-serial-<ts>.log --msi flat` (or
    `--msi rising` if the host count moved this time). It ends with a "Hang
    verdict (RCS)": `ACTHD` moved or not, `GT_INTR_DW0`, the master IRQ bit,
    the RCS interrupt enable and `RING_IMR`, and one conclusion line (never
