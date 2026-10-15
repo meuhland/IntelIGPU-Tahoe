@@ -84,7 +84,7 @@ class Fake:
     def read32(self, off):
         if self.d3 or not self.cmd & C.CMD_MEMORY:
             return C.ALL_ONES
-        if self.asleep and off in (0x9138, 0x913c) and not self.reg.get(C.FW_RENDER[1]):
+        if self.asleep and off in (0x9138, 0x913c, 0x9140) and not self.reg.get(C.FW_GT[1]):
             return 0
         if off == 0x9138:
             return 1 if self.hot else 0
@@ -98,7 +98,8 @@ class Fake:
         self.writes.append(off)
         if off in (C.FW_RENDER[0], C.FW_GT[0]):
             ack = C.FW_RENDER[1] if off == C.FW_RENDER[0] else C.FW_GT[1]
-            self.reg[ack] = v & C.FW_KERNEL
+            mask, val = v >> 16, v & 0xffff
+            self.reg[ack] = (self.reg.get(ack, 0) & ~mask) | (val & mask)
         elif off == C.GDRST:
             self.reg[C.GDRST] = 0  # self-clears
             if self.gdrst_heals:
@@ -203,11 +204,19 @@ rc, out, _ = run(['all'], d)
 check(d.resets == 1 and d.pm_resets == 1, 'all runs one FLR and one PM reset')
 check('FLR: no change (populated)' in out, 'pm case: FLR no change')
 check('PM reset (D3hot->D0) COLDS the GT (cold)' in out, 'pm case: PM reset colds, cold signature')
-check('the VM signature' in out, 'pm case: media-live zero tagged as VM signature')
+check('COLD (slice/DSS zero, media live)' in out, 'pm case: media-live zero tagged cold')
 
 # Asleep (all zero incl. media) is tagged differently from cold.
 check(C.classify({'slice': 0, 'dss': 0, 'eu_disable': 0, 'media': 0}) == 'asleep', 'classify asleep')
 check(C.classify({'slice': 0, 'dss': 0, 'eu_disable': 0, 'media': 0xf00ff}) == 'cold', 'classify cold')
+
+# Apple's requester bit: --fw-bit 1 requests and acks bit 1, still wakes the GT.
+d = Fake(asleep=True)
+rc, out, _ = run(['forcewake', '--fw-bit', '1'], d)
+check('acked: render=True gt=True' in out and 'fuses populated' in out, 'fw-bit 1 wakes and acks')
+check(d.reg.get(C.FW_GT[1]) == 0, 'fw-bit 1 released')
+# Asleep raw read carries the VM signature label.
+check('the VM signature' in run(['read'], Fake(asleep=True))[1], 'asleep tagged as VM signature')
 
 if failures:
     sys.exit(1)

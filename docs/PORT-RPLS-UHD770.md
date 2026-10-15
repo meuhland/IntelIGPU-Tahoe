@@ -420,14 +420,16 @@ Narrowed by static read of the `sle` binary and i915 v7.2:
   / Gen11 `GT_SUBSLICE_DISABLE`), `0x9134` (`GEN11_EU_DISABLE`), `0x9140`
   (`GEN11_GT_VEBOX_VDBOX_DISABLE`). TGL and ADL-S/RPL-S are all Gen12 pre-Xe
   and share these offsets in i915, so "wrong offset on RPL-S" is ruled out.
-- **Forcewake works.** The media fuse `0x9140` reads `0xf00ff` (VEBox 4 / VDBox
-  8) inside the same forcewake bracket where the geometry fuses read 0.
+- ~~**Forcewake works.** The media fuse `0x9140` reads `0xf00ff`…~~ **Wrong
+  (corrected 2026-10-15):** Apple logs `~raw & 0xf00ff`, so `0xf00ff` means the
+  media fuse read **0** too. All four fuses read zero: the GT-asleep signature.
+  See "Correction 2026-10-15" below.
 - **Display power / CDCLK / DBUF are not the lever.** Running a stage-2 execute
   bring-up first (PowerWell1 `0x045404` = `HSW_PWR_WELL_CTL2`, CDCLK, DBUF)
   before `igpu-start` left `NumSlices` at 0.
 
 So the render-GT geometry fuse mirrors genuinely read 0 in the VM. Leading
-hypothesis: the cold, GOP-less, passed-through GT has not been reset / had its
+hypothesis (superseded 2026-10-15: forcewake not in effect, not a cold GT): the cold, GOP-less, passed-through GT has not been reset / had its
 fuses downloaded, and `getGPUInfo` reads the mirrors very early in `start`. On
 a real Mac the GOP/firmware initialises the iGPU first; this headless
 passthrough never does. The GT sampler (`gt_sampler.hpp`) did not print — its
@@ -512,7 +514,8 @@ Decisive:
   injection is confirmed against real hardware, not inferred. `i915_sseu_status`
   "Available" agrees (1 slice, 2 DSS, 32 EU).
 - **So the VM's zeros are not a wrong register or a Gen12 quirk.** In the VM
-  the same registers read 0 *even though Apple forcewakes*. The fuse-mirror
+  the same registers read 0 *even though Apple forcewakes* (superseded
+  2026-10-15: the VM read was all-zero, i.e. forcewake was not in effect). The fuse-mirror
   download that `i915` performs when it powers the GPU up at bind has not
   happened in the guest: the `vfio-pci` handoff resets the device, and the
   headless VM has no GOP/firmware to re-run the GPU power-up, so the mirrors
@@ -651,12 +654,9 @@ gdrst      forcewake  populated  ->  after_reset populated (cleared, loops=2)
   `vfio-pci` bind, the fuses read populated, and they still do after an FLR
   (the reset QEMU applies on open) and after GDRST. Neither reset is the
   culprit; neither is a fix needed on the host side so far.
-- **Two different zero states.** Right after the FLR the raw read is zero for
-  every fuse *including media* — the GT is asleep, and forcewake reads the
-  real values. The VM's reading was different: slice/DSS 0 but media
-  `0xf00ff` (real value `0xe00fa`). The GT answered, but its fuse mirrors held
-  something other than the download. `coldgt_check.py` now tags these
-  separately (`asleep` vs `cold`, the VM signature).
+- **The post-FLR raw read is all zero, media included** — the GT is asleep,
+  and forcewake reads the real values. (This first looked different from the
+  VM; it is the same — see the correction below.)
 - **Not exercised: D3.** `runtime_status_before=active` — the device never
   runtime-suspended (PCI devices default to `power/control=on`, so vfio-pci's
   idle D3 only happens if something sets `auto`). Its `reset_method` includes
@@ -666,18 +666,57 @@ gdrst      forcewake  populated  ->  after_reset populated (cleared, loops=2)
   guest PMCSR writes through, so OVMF or macOS putting the unclaimed (FFFF)
   device into D3 would reset it with nobody to re-init it.
 
-Next, both cheap:
+Follow-up the same day, `coldgt_check.py pm --wake`: D3hot→D0 (the kernel's
+`pm` reset) leaves the fuses populated too, even on the raw read. **No host
+reset — FLR, PM, GDRST — wipes the fuse download.**
 
-1. **Host, `coldgt_check.py pm --wake`** (new step; included in `all`): forces a
-   D3hot→D0 through the kernel's `pm` reset method (restores `reset_method`
-   afterwards) and compares forcewake reads. `COLDS` with the `cold` signature
-   reproduces the VM's state on the host and names the trigger.
-2. **Guest, `gt-reset-probe` early in the boot.** Load the execute build
-   before stage 3 / the gate and read raw, forcewake and post-GDRST values
-   (the host just showed GDRST is benign). Cold at that point → the GT is cold
-   when macOS first sees it (QEMU/OVMF/guest PM); populated → something this
-   port loads later colds it, so repeat after stage 3 to bisect. Also check
-   the guest's PM state: `ioreg -r -n GFX0 -l | grep -i 'IOPowerManagement\|CurrentPowerState'`.
+##### Correction 2026-10-15: the VM read was all zero — forcewake, not a cold GT
+
+A static re-read of `getGPUInfo` in the `sle` binary (`llvm-objdump`, LC_UUID
+`ba3aa1c0…`) overturns the "forcewake works" inference the cold-GT theory
+rested on:
+
+- **The media value was never raw.** `0x284f7: mov r14d,[rax+0x9140]; not
+  r14d; mov r13d,r14d; and r13d,0xf00ff` — the logged `VEDBOXEnableFuses` is
+  `~raw & 0xf00ff`; VEBox = popcount of its bits 8+ and VDBox = popcount of the
+  low byte of `~raw`. The window's `0xf00ff` / VEBox 4 / VDBox 8 means
+  `raw & 0xf00ff == 0`. The real register (`0xe00fa` on the host) would log
+  `0x10005`, VEBox 1, VDBox 2. So in the VM **all four fuse registers read 0**
+  — exactly the host's post-FLR *asleep* read, which forcewake fixes.
+- **One domain.** i915's Gen12 forcewake table puts `0x9000–0x947f` (all four
+  fuses) under `FORCEWAKE_GT`; an all-zero read is that domain not being awake.
+- **Apple's forcewake path.** `SafeForceWake(true, 5)`: Apple's domain bits are
+  1 = RENDER (`0xa278`, ack `0xd84`), 2 = MEDIA, 4 = GLOBAL (`0xa188`, ack
+  `0x130044`), so 5 is render + GT — the right domains. With
+  `MultiForceWakeSelect` 1 (fFlags bit 11, set by our gate profile) it keeps
+  per-domain refcounts at `this+0x1290/0x1294/0x1298` and touches hardware only
+  on a 0→1 transition, through `SafeForceWakeMultithreaded` with requester bit
+  1; missing acks log `Retrigger … domain wake` / `SafeForceWake failed on …
+  domain`. Without bit 11 it calls a pointer the framebuffer controller
+  supplies (`this->0xde8`, `+8`). It silently does nothing only if fFlags bit
+  12 is set, which `populateAccelConfig` does only in simulator mode (bit 5,
+  `setInSimulator`: config dword `0xdeafbeef`/`0xff208086`) — not us
+  (`this+0x1118` is config dword 0 = `0xa7808086`).
+
+So the leading hypothesis flips: **the GT was asleep when Apple read it**,
+because Apple's forcewake did not take effect — a refcount already above 0
+(hardware never written), acks that failed (would be logged), or a GT that
+cannot wake in the guest. Not a missing fuse download, so the GOP route is not
+indicated by this evidence. Topology injection still clears the
+`getGPUInfo` error, but if forcewake is not effective there it is likely not
+effective anywhere, and the stamps would hang the same way.
+
+Next, cheapest first:
+
+1. **No downtime — grep the saved window log** on the guest:
+   `grep -n -i "forcewake\|retrigger\|pre-si\|simulation" ~/work/igpu-notes/window-20261014-serial-hwcaps.txt`.
+   `Retrigger`/`failed` lines → acks failed; nothing → forcewake was skipped or
+   never needed an ack (refcount), so the GT stayed asleep silently.
+2. **Host, Apple's requester bit:** `coldgt_check.py flr forcewake --wake
+   --fw-bit 1` — confirms bit 1 wakes this GT after the reset QEMU applies.
+3. **Guest, `gt-reset-probe` before `igpu-start`:** its forcewake (bit 0)
+   read. 1/3 in the guest → the VM can wake the GT and the difference is
+   Apple's path; 0 even with acks → the GT cannot wake in the guest.
 
 #### Verified against i915 v6.6 (offline, 2026-10-14)
 
@@ -695,8 +734,8 @@ grounds both next steps (`gh api … intel_sseu.c`, `intel_gt_regs.h`,
   Apple's `DualSubSliceCountFuse:0x0` is the key missing datum.
 - **EU uses a disable mask.** `~GEN11_EU_DISABLE` (`0x9134`); `0x0` disabled =
   all present, so Apple's `EUDisableFuses:0x0` is ambiguous (also what an
-  empty read gives) — only the media fuse `0x9140=0xf00ff` proves any fuse
-  data is live.
+  empty read gives). (The media `0xf00ff` is Apple's `~raw & 0xf00ff`, i.e. a
+  raw 0 — see the 2026-10-15 correction; no fuse data was live.)
 - **Injection target is i915's own model.** i915 hardcodes 1 slice for Gen12
   (`intel_sseu_set_info(sseu, 1, 6, 16)`) and derives the rest from the DSS
   mask, so forcing `NumSlices=1` + a UHD 770 GT1 DSS population (2 DSS → 4 SS

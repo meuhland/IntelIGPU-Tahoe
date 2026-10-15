@@ -36,7 +36,7 @@ FUSES = (('slice', 0x9138), ('dss', 0x913c), ('eu_disable', 0x9134), ('media', 0
 GDRST, GRDOM_FULL = 0x941c, 1 << 0
 FW_RENDER = (0xa278, 0xd84)
 FW_GT = (0xa188, 0x130044)
-FW_KERNEL = 1 << 0
+FW_KERNEL = 1 << 0  # i915's requester bit; Apple's SafeForceWake uses bit 1 (--fw-bit 1)
 MAP_LEN = 0x140000  # covers the highest register used (0x130044)
 
 PCI_COMMAND, CMD_MEMORY = 0x04, 1 << 1
@@ -170,11 +170,11 @@ def unreadable(f):
 def classify(f):
     """populated / cold / asleep / unreadable.
 
-    Two different 'zero' states were seen: on the host right after an FLR, a
-    raw read returns 0 for every fuse including media (GT asleep; forcewake
-    reads the real 1/3/0xe00fa). In VM 113 Apple read slice/DSS 0 but media
-    0xf00ff (not the real 0xe00fa): the GT answers but its fuse mirrors hold
-    something other than the download. That is the 'cold' signature.
+    'asleep': every fuse reads 0, media included. Seen on the host right after
+    an FLR without forcewake (forcewake then reads the real 1/3/0xe00fa), and
+    it is also what VM 113 read: Apple logs ~raw & 0xf00ff for media, so its
+    'VEDBOXEnableFuses:0xf00ff' means a raw 0. 'cold' (geometry 0, media live)
+    would be a GT that answers without its fuse download; not yet observed.
     """
     if unreadable(f):
         return 'unreadable'
@@ -183,17 +183,17 @@ def classify(f):
     return 'cold' if f['media'] else 'asleep'
 
 
-def acquire_forcewake(dev, req, ack):
-    dev.write32(req, (FW_KERNEL << 16) | FW_KERNEL)  # masked write
+def acquire_forcewake(dev, req, ack, bit=FW_KERNEL):
+    dev.write32(req, (bit << 16) | bit)  # masked write
     for _ in range(100):
-        if dev.read32(ack) & FW_KERNEL:
+        if dev.read32(ack) & bit:
             return True
         dev.delay_us(10)
     return False
 
 
-def release_forcewake(dev, req):
-    dev.write32(req, FW_KERNEL << 16)
+def release_forcewake(dev, req, bit=FW_KERNEL):
+    dev.write32(req, bit << 16)
 
 
 def gdrst_reset(dev, mask=GRDOM_FULL):
@@ -214,13 +214,14 @@ def gdrst_reset(dev, mask=GRDOM_FULL):
 
 
 def with_forcewake(dev, body):
-    rec = {'render_acked': acquire_forcewake(dev, *FW_RENDER),
-           'gt_acked': acquire_forcewake(dev, *FW_GT)}
+    bit = getattr(dev, 'fw_bit', FW_KERNEL)
+    rec = {'render_acked': acquire_forcewake(dev, *FW_RENDER, bit),
+           'gt_acked': acquire_forcewake(dev, *FW_GT, bit)}
     try:
         rec.update(body())
     finally:
-        release_forcewake(dev, FW_RENDER[0])
-        release_forcewake(dev, FW_GT[0])
+        release_forcewake(dev, FW_RENDER[0], bit)
+        release_forcewake(dev, FW_GT[0], bit)
     return rec
 
 
@@ -317,8 +318,8 @@ def fmt(f):
     if f is None:
         return '-'
     tag = {'unreadable': 'UNREADABLE (D3 / decode off)', 'populated': 'populated',
-           'cold': 'COLD (slice/DSS zero, media live: the VM signature)',
-           'asleep': 'zero incl. media (GT asleep, not cold)'}[classify(f)]
+           'cold': 'COLD (slice/DSS zero, media live)',
+           'asleep': 'ALL ZERO incl. media (GT asleep / forcewake not in effect; the VM signature)'}[classify(f)]
     return (f'slice={f["slice"]:#x} dss={f["dss"]:#x} eu_disable={f["eu_disable"]:#x} '
             f'media={f["media"]:#x}  -> {tag}')
 
@@ -395,11 +396,14 @@ def main(argv=None, dev=None):
                     help='set power/control=on for the run (vfio-pci runtime-suspends idle devices to D3)')
     ap.add_argument('--enable-decode', action='store_true',
                     help='turn on PCI memory decode for the run if it is off')
+    ap.add_argument('--fw-bit', type=int, choices=range(16), default=0, metavar='N',
+                    help="forcewake requester bit (default 0 = i915's; 1 = what Apple's SafeForceWake uses)")
     ap.add_argument('--json', action='store_true')
     args = ap.parse_args(argv)
     steps = list(ORDER) if 'all' in args.steps else [s for s in ORDER if s in args.steps]
 
     dev = dev or SysfsDevice(args.bdf)
+    dev.fw_bit = 1 << args.fw_bit
     try:
         info, restore = preflight(dev, steps, args.wake, args.enable_decode)
     except Refused as e:

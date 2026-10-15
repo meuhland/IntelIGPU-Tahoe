@@ -187,8 +187,10 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   (1) Apple reads the correct registers — `getGPUInfo` reads 0x9138
   (`GEN11_GT_SLICE_ENABLE`), 0x913c (`GEN12_GT_GEOMETRY_DSS_ENABLE`), 0x9134
   (`GEN11_EU_DISABLE`); i915 v7.2 shares these across TGL and ADL-S/RPL-S, so
-  the "wrong offset on RPL-S" idea is out. (2) Forcewake works — the media fuse
-  0x9140 reads `0xf00ff` in the same `SafeForceWake(5)` bracket. (3) Display
+  the "wrong offset on RPL-S" idea is out. (2) ~~Forcewake works~~ — corrected
+  2026-10-15: Apple logs `~raw & 0xf00ff` for media, so `0xf00ff` is a raw 0;
+  all four fuses read 0 (GT asleep / forcewake not in effect), and host tests
+  show no reset wipes the fuses. See PORT doc "Correction 2026-10-15". (3) Display
   power + CDCLK + DBUF (a stage-2 run before `igpu-start`) do **not** change
   `NumSlices`. Leading hypothesis: the cold, GOP-less, passed-through GT is not
   reset / fuse-downloaded, and `getGPUInfo` reads the mirrors too early. The
