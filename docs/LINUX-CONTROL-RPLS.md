@@ -21,8 +21,13 @@ about 20–30 minutes.
 
 ## 1. Prepare (iGPU still on the host)
 
-1. **ISO:** Ubuntu 24.04 LTS (or newer) desktop live ISO in a Proxmox ISO
-   storage. It ships i915, the GuC/HuC firmware and Mesa.
+1. **ISO:** Ubuntu 24.04 LTS or newer desktop live ISO (26.04.1 LTS is the
+   one planned) in a Proxmox ISO storage. It ships i915, the GuC/HuC firmware
+   and Mesa. On 26.04's 7.x kernel, check that `i915` (not `xe`) binds the IGD:
+   `lspci -k -s 00:02.0`. If it shows `xe`, add `i915.force_probe=a780
+   xe.force_probe=!a780` to the kernel line. Wayland is the default; `DRI_PRIME=1
+   glxgears` runs through XWayland and still renders on the IGD (confirm with
+   `glxinfo -B`).
 2. **VM 114**, a copy of VM 113's hardware without disks:
 
    ```sh
