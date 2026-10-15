@@ -257,6 +257,22 @@ class Decoder(unittest.TestCase):
         self.assertIn("physical 0x17a001000).", out)
         self.assertIn("outside the mapped BAR", R.describe("hwsPteLo", 0xFFFFFFFF))
 
+    def test_context_and_ppgtt_root(self):
+        st = dict(LIT, **AWAKE, rcsElst0Lo=0x40008019, rcsElst0Hi=0x00000020, lrcaPteLo=0x00000003,
+                  lrcaPteHi=0, rcsPdp0Lo=0, rcsPdp0Hi=0)
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **st), line(1, 250, **st)]))[1]))
+        self.assertIn("LRCA GGTT 0x40008000) -> PTE 0x0000000000000003 (valid, physical 0x0)", out)
+        self.assertIn("context image is read from and saved to physical 0", out)
+        self.assertIn("page walks start at physical 0", out)
+        ok = dict(st, lrcaPteLo=0x4b75808b, lrcaPteHi=1, rcsPdp0Lo=0x12345000, rcsPdp0Hi=1)
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **ok), line(1, 250, **ok)]))[1]))
+        self.assertIn("physical 0x14b758000).", out)
+        self.assertIn("-> physical 0x112345000.", out)
+        idle = dict(st, rcsElst0Lo=0, rcsElst0Hi=0, lrcaPteLo=0x4ff44b08b & 0xFFFFFFFF, lrcaPteHi=4)
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **idle), line(1, 250, **idle)]))[1]))
+        self.assertIn("no context submitted (ELST0 is 0)", out)
+        self.assertNotIn("page walks start at physical 0", out)
+
     def test_empty_log(self):
         self.assertIn("No ReimsGT samples", R.summary([])[0])
 

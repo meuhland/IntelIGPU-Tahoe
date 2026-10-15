@@ -31,6 +31,9 @@ DEFAULT_NAMES = [
     "faultTlb0", "faultTlb1",
     "hwsPteLo", "hwsPteHi",
     "ggttPte0Lo", "ggttPte0Hi",
+    "rcsElst0Lo", "rcsElst0Hi", "rcsElst1Lo", "rcsElst1Hi",
+    "rcsPdp0Lo", "rcsPdp0Hi", "rcsGfxMode", "rcsCtxStPtr",
+    "lrcaPteLo", "lrcaPteHi",
     "transconfA", "surfLiveA",
     "fbPteLo", "fbPteHi",
 ]
@@ -279,6 +282,22 @@ def summary(samples):
                    f"0x{pte(s, 'hwsPte'):016x} ({'valid' if valid else 'NOT valid'}, physical 0x{addr:x})"
                    + (": the GPU's status-page writes go to physical 0 (cf. a host DMAR write at 0x0)."
                       if valid and addr == 0 else "."))
+    if all(k in s for k in ("rcsElst0Lo", "lrcaPteLo", "lrcaPteHi")):
+        lrca = s["rcsElst0Lo"] & 0xFFFFF000
+        if s["lrcaPteLo"] == 0xFFFFFFFF:
+            out.append(f"  RCS context (ELST0 0x{s['rcsElst0Lo']:08x}, LRCA 0x{lrca:08x}): PTE outside the mapped BAR.")
+        else:
+            valid, addr = s["lrcaPteLo"] & 1, pte_address(s, "lrcaPte")
+            out.append(f"  RCS context (ELST0 0x{s['rcsElst0Hi']:08x}_{s['rcsElst0Lo']:08x}, LRCA GGTT 0x{lrca:08x}) "
+                       f"-> PTE 0x{pte(s, 'lrcaPte'):016x} ({'valid' if valid else 'NOT valid'}, physical 0x{addr:x})"
+                       + (": the context image is read from and saved to physical 0 (cf. the DMAR write at 0x0)."
+                          if valid and addr == 0 else
+                          ("; no context submitted (ELST0 is 0)." if lrca == 0 else ".")))
+    if all(k in s for k in ("rcsPdp0Lo", "rcsPdp0Hi")):
+        root = (s["rcsPdp0Hi"] << 32 | s["rcsPdp0Lo"]) & 0x7FFFFFF000
+        out.append(f"  RCS PPGTT root (PDP0 descriptor, PML4 for 4-level): 0x{s['rcsPdp0Hi']:08x}_{s['rcsPdp0Lo']:08x}"
+                   + (" -> page walks start at physical 0." if root == 0 and "rcsElst0Lo" in s and s["rcsElst0Lo"] else
+                      f" -> physical 0x{root:x}."))
     if all(k in s for k in ("ggttPte0Lo", "ggttPte0Hi")):
         out.append(f"  GGTT entry 0: 0x{pte(s, 'ggttPte0'):016x} "
                    f"({'valid' if s['ggttPte0Lo'] & 1 else 'NOT valid'}, physical 0x{pte_address(s, 'ggttPte0'):x}).")

@@ -19,7 +19,8 @@
 // BLT 0x22000), gt/uc/intel_guc_reg.h; display ones as in hdmi_scanout.hpp.
 namespace ReimsGTSampler {
 // derive: 0 = read offset; 1/2 = low/high dword of the GGTT PTE that the
-// already-sampled RCS status-page address (rcsHwsPga) points at.
+// already-sampled RCS status-page address (rcsHwsPga) points at; 3/4 = the
+// same for the context address (LRCA) in rcsElst0Lo.
 struct Reg {uint32_t offset;const char*name;uint8_t derive=0;};
 constexpr uint32_t ggttBase=0x800000;  // BAR0 upper half, as hdmi_scanout.hpp
 constexpr Reg regs[]={
@@ -49,6 +50,15 @@ constexpr Reg regs[]={
  // and GGTT entry 0; a valid PTE with address 0 sends writes to physical 0.
  {0,"hwsPteLo",1},{0,"hwsPteHi",2},
  {ggttBase,"ggttPte0Lo"},{ggttBase+4,"ggttPte0Hi"},
+ // The submitted context (2026-10-16: CAT_ERROR on context load, ring regs
+ // never restored, CONTEXT_CONTROL first). Offsets and names from Apple's own
+ // IGHardwareRingBuffer::dumpRegistersRCS: RCS_ELST0/1 (execlist element
+ // descriptor, LRCA in bits 31:12), RCS_PDP0_DESCRIPTOR (PPGTT root restored
+ // from the context; PML4 for 4-level), GFX_MODE, STATUS_CTXT_ST_PTR.
+ // lrcaPte: the GGTT PTE of the LRCA in rcsElst0Lo (derived, like hwsPte).
+ {0x002250,"rcsElst0Lo"},{0x002254,"rcsElst0Hi"},{0x002260,"rcsElst1Lo"},{0x002264,"rcsElst1Hi"},
+ {0x002270,"rcsPdp0Lo"},{0x002274,"rcsPdp0Hi"},{0x00229c,"rcsGfxMode"},{0x00223c,"rcsCtxStPtr"},
+ {0,"lrcaPteLo",3},{0,"lrcaPteHi",4},
  {0x070008,"transconfA"},{0x0701ac,"surfLiveA"},
  // GGTT PTE of the bring-up's first framebuffer page (GGTT 0x01000000):
  // ggttBase 0x800000 + (0x01000000 >> 12) * 8, as hdmi_scanout.hpp writes it.
@@ -66,21 +76,24 @@ constexpr int indexOf(const char*name){
  return -1;
 }
 constexpr int hwsIndex=indexOf("rcsHwsPga");
+constexpr int elst0Index=indexOf("rcsElst0Lo");
 // Derived reads that would fall outside the mapped BAR read as this marker.
 constexpr uint32_t outsideBar=0xffffffffu;
 
 // Read column i. Plain columns read their offset; derived ones use the
-// rcsHwsPga value already read into soFar (it precedes them in regs[]).
+// GGTT address already read into soFar (rcsHwsPga or rcsElst0Lo, which
+// precede them in regs[]).
 template<class Read> inline uint32_t readColumn(unsigned i,const uint32_t*soFar,uint64_t mapLength,Read&&read){
  const Reg&r=regs[i];
  if(!r.derive)return read(r.offset);
- const uint64_t off=uint64_t(ggttBase)+uint64_t(soFar[hwsIndex]>>12)*8+(r.derive==2?4:0);
+ const uint32_t gtt=soFar[r.derive<=2?hwsIndex:elst0Index];
+ const uint64_t off=uint64_t(ggttBase)+uint64_t(gtt>>12)*8+((r.derive&1)?0:4);
  return off+4<=mapLength?read(uint32_t(off)):outsideBar;
 }
 
 struct Sample {uint32_t v[count]={};};
 // Kext line buffer for format()/header(); the test checks the worst case fits.
-constexpr size_t lineBuffer=512;
+constexpr size_t lineBuffer=1024;
 // IOLog's console path keeps at most 255 characters of a line
 // (SERIAL_CONS_BUF_SIZE 256, xnu osfmk/console/serial_protos.h; the rest is
 // dropped unless drain_uart_sync=1), which cut every 2026-10-15 sample after

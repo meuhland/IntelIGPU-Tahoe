@@ -1106,6 +1106,43 @@ flight). The fact that holds either way: while hung, the GPU keeps issuing
 DMA **writes to address 0**, which in the attached VM land silently in guest
 RAM at 0.
 
+**Full decode of the 45-register window (2026-10-16, host
+`read_gt_serial.py`; samples armed at 0.5 s, `igpu-start` at ~116.4 s, capture
+to 322 s).** Beyond the verdict above:
+
+- **Error identity is clean.** `EIR`, `ESR`, `IPEIR`, `IPEHR`, `DMA_FADD`,
+  `BBADDR` stay 0 throughout: the engine never parsed a command. It failed in
+  or before context load.
+- **Context restore started and produced no ring.** At submission
+  `CONTEXT_CONTROL` (`0x2244`) goes `0 → 0x100` while `RING_HEAD/TAIL/START/CTL`
+  stay 0. In a Gen12 RCS context image `CONTEXT_CONTROL` is the first
+  register restored, then ring head, tail, start and control; `RING_CTL` 0 is
+  "no valid ring". So either the image's ring fields are zero or the restore
+  stopped after its first entry: a bad context image, or one fetched from the
+  wrong memory. `INSTDONE` drops bit 21 (`0xfffffffe → 0xffdffffe`): one unit
+  left busy.
+- **Apple adopts the old GGTT.** One sample before the start burst (#464,
+  116.35 s) the existing PTEs change flags `…001 → …08b` with their addresses
+  kept: GGTT entry 0 (host `0x4ff44b000`) and GGTT `0x01000000` (host
+  `0x2f5d5c000`, stage 3 not loaded this time). `initGlobalGTT` re-encodes the
+  whole table with Apple's attributes and keeps what is there, as it would
+  keep a firmware framebuffer on a Mac; here that keeps host i915 addresses.
+- **Status page fine**: GGTT `0x40004000` → `0x14b757000`, guest RAM.
+- `RING_RESET_CTL`: `CAT_ERROR` from submission, 12 reset requests (~8.25 s
+  apart) without `READY_TO_RESET`, then none after ~282 s.
+
+Leading theory: the context image the engine loads is not the memory Apple
+filled. If its LRCA's GGTT entry, or the PPGTT root restored from it, points
+at physical 0, the restore reads guest RAM at 0 (mostly zeros: no valid ring,
+catastrophic error) and context save or page walks write to 0, matching the
+DMAR write to `0x0`. Next capture reads exactly that, using the registers
+Apple's own `IGHardwareRingBuffer::dumpRegistersRCS` dumps: `RCS_ELST0/1`
+(`0x2250/0x2260`, execlist element descriptors, LRCA in bits 31:12),
+`RCS_PDP0_DESCRIPTOR` (`0x2270/0x2274`, PPGTT root, PML4 for 4-level),
+`GFX_MODE` (`0x229c`), `STATUS_CTXT_ST_PTR` (`0x223c`), and a derived
+`lrcaPte` (the GGTT PTE of the LRCA in `ELST0`). The decoder prints the
+context's GGTT entry and the PPGTT root and flags physical 0.
+
 What would send GPU writes to 0: a valid GGTT entry whose address is 0. The
 engine's hardware status page, which the GPU writes on context events, is the
 prime candidate. The sampler now also reads the status page's own GGTT entry,
