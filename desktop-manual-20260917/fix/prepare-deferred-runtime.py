@@ -92,6 +92,23 @@ if target_name=='rpls':
     assert not any(dss_fuse_site<=a<dss_fuse_site+6 for a in relocs)
     edits.append((slice_fuse_site,bytes.fromhex('41bc01000000')+b'\x90'))  # mov r12d,1 ; nop
     edits.append((dss_fuse_site,bytes.fromhex('b903000000')+b'\x90'))      # mov ecx,3 ; nop
+# RPL-S forcewake (opt-in, REIMS_RPLS_FORCEWAKE_PATCH=1; untested on hardware).
+# With no AppleIntelFramebufferController the accelerator runs standalone and
+# initLocalCallbackSupport installs _SafeForceWake (0x2d2a0), an empty
+# function, as the framebuffer forcewake callback. SafeForceWake uses that
+# callback unless flag bit 11 (MultiForceWakeSelect) is set, and getGPUInfo
+# runs in configureDevice before start sets bit 11, so its forcewake bracket is
+# a no-op and the fuses read 0 from a GT still asleep after QEMU's reset
+# (2026-10-15). Take the refcounted hardware path unconditionally (jb -> jmp).
+# Its lock (+0x1468) is allocated in start (0x23f63) before configureDevice,
+# and the MMIO map (+0x1240) before getGPUInfo.
+forcewake_site=0x28c5d   # btl $0xb,%eax ; jb 0x28c90
+forcewake_patch=target_name=='rpls' and os.environ.get('REIMS_RPLS_FORCEWAKE_PATCH')=='1'
+if forcewake_patch:
+    assert values['__ZN16IntelAccelerator13SafeForceWakeEbj']==0x28c2a
+    assert b[forcewake_site-4:forcewake_site+2]==bytes.fromhex('0fbae00b'+'7231')
+    assert not any(forcewake_site<=a<forcewake_site+2 for a in relocs)
+    edits.append((forcewake_site,b'\xeb\x31'))
 patched=bytearray(b)
 for at,new in edits:patched[at:at+len(new)]=new
 # Every byte outside the edits is unchanged.
@@ -131,5 +148,8 @@ if target_name=='rpls':
     record['gt1_l3_bank_patch']='IntelAccelerator::getGPUInfo: 1x4 GT2 path sets L3BankCount=4 without flag 0x20'
     record['fuse_injection_file_offsets']=[hex(slice_fuse_site),hex(dss_fuse_site)]
     record['fuse_injection_patch']='IntelAccelerator::getGPUInfo: slice fuse 0x9138->1, DSS fuse 0x913c->3 (NumSlices 1, NumSubSlices 4, EU 32)'
+    if forcewake_patch:
+        record['forcewake_file_offset']=hex(forcewake_site)
+        record['forcewake_patch']='IntelAccelerator::SafeForceWake: always the refcounted hardware path (standalone callback is an empty stub)'
 (base/'deferred-runtime.json').write_text(json.dumps(record,indent=2)+'\n')
 print(json.dumps(record,indent=2))

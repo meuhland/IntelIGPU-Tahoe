@@ -761,6 +761,19 @@ path, so this is likely only needed for start. A permanent fix would fold the
 hold into the gate or DesktopLink (or patch `SafeForceWake` to take the
 hardware path), once the hold build proves it on hardware.
 
+**Permanent-fix candidate, prepared (opt-in, untested):**
+`REIMS_TARGET=rpls REIMS_RPLS_FORCEWAKE_PATCH=1 prepare-deferred-runtime.py`
+adds one edit: `SafeForceWake` at `0x28c5d`, `jb` → `jmp` (`72 31` → `eb 31`),
+so every forcewake, including `getGPUInfo`'s early one, takes the refcounted
+hardware path instead of the empty standalone callback. Safe that early: its
+spinlock (`+0x1468`) is allocated in `start` at `0x23f63`, before
+`configureDevice`, and the MMIO map (`+0x1240`) is set before `getGPUInfo`.
+Candidate UUID `b2d3495428c12c2cb29103a87d2c63da` (computed offline; the
+default rpls candidate stays `3a7cfb99…`, adlp is unaffected). The gate
+compiles against the candidate UUID, so switching means re-prepare, rebuild
+the gate, reinstall, and reboot — do it in the window after the hold probe
+has proved the diagnosis. If it works, the hold probe is no longer needed.
+
 3. **Guest, `gt-reset-probe` before `igpu-start`:** its forcewake (bit 0)
    read. 1/3 in the guest → the VM can wake the GT and the difference is
    Apple's path; 0 even with acks → the GT cannot wake in the guest.
