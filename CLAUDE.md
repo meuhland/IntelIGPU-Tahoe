@@ -214,6 +214,18 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   specifiers, controllers present. So an interrupt *exists* for Apple's
   fallback filter source; whether GT interrupts are *delivered* during
   `start` is still open. (An earlier ioreg scan suggesting none was wrong.)
+- Hang window with the host MSI check (2026-10-15 evening, hold+watch probe
+  `833D0664`, candidate `3a7cfb99`): same hang after `Scheduler Throttle
+  Cap`. On the Proxmox host the IGD went from `vfio-intx` only / `MSI:
+  Enable-` before `igpu-start` to `vfio-msi[0](0000:00:02.0)` / `MSI: Enable+`
+  during the hang, with **count 0** on every CPU across 5 s. So Apple's
+  standalone path enables MSI and vfio forwards it, but the GPU raised no
+  interrupt at all: either the stamps never executed or the GT masks the
+  interrupt. The GT watch, which should tell these apart, printed no
+  `ReimsGT` line to serial during the window although the guest showed
+  `ReimsGTWatch: True` (open, for the offline session). Evidence:
+  `~/work/igpu-notes/window-20261016-hold-watch.txt`; host capture
+  `/root/vm113-watch-20261015-143036.log`.
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On

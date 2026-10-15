@@ -922,6 +922,25 @@ forcewake-hold probe (`REIMS_GT_FORCEWAKE_HOLD=1`, UUID `0C82A034`) before
 Evidence: `~/work/igpu-notes/window-20261015-gt-hold.txt`,
 `desktop-manual-20260917/fix/session-20261015-130724-068558-start/`.
 
+### Host MSI check during the hang (2026-10-15 evening)
+
+Hold+watch probe `833D0664` loaded (held fuses 1/3/0/`0xe00fa`, watch armed),
+candidate `3a7cfb99`, `igpu-start`: the same silent hang after `Scheduler
+Throttle Cap = 100ms.` On the Proxmox host:
+
+| | `/proc/interrupts` for `00:02.0` | `lspci` MSI |
+|---|---|---|
+| before `igpu-start` | `vfio-intx` (IRQ 16), count 0 | `Enable-` |
+| during the hang, two reads 5 s apart | `vfio-msi[0]` (IRQ 168), count 0 on every CPU both times | `Enable+`, address `fee00018` |
+
+Apple's standalone interrupt path therefore does enable the IGD's MSI and vfio
+sets up the vector, but the GPU raises no interrupt at all while `start`
+waits in `finishAllStamps`. Either the start-up stamps never execute, or the
+GT does not generate their interrupt (master IRQ or engine masks). The GT
+watch meant to tell these apart produced no `ReimsGT` output on serial in the
+window capture, although the guest published `ReimsGTWatch: True`; that is
+open. Evidence: `~/work/igpu-notes/window-20261016-hold-watch.txt`.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.
