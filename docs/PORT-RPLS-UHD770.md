@@ -1179,6 +1179,37 @@ Nothing calls `IGStolenMemoryPool::allocate` directly. So stolen memory hands
 out no address-0 objects. (`IntelSharedMemInfo` at `+0x13c0` gets only
 `0x18000000` in its second dword; its meaning is open.)
 
+#### 55-register watch window (2026-10-15 afternoon, probe `D23B0993`)
+
+Recorded facts; interpretation left to the offline session. Hold+watch probe
+`D23B0993` (55 registers, six-part samples, none cut), candidate `3a7cfb99`,
+gate `2DF3A522`. Guest probe read: held fuses 1/3/0/`0xe00fa`, both acks,
+`ReimsGTWatch: True`. Guest `date` right before `igpu-start`: **15:48:28**.
+
+- Host DMAR: one new fault at **15:48:58**, `DMA Write NO_PASID ... fault addr
+  0x0 [fault reason 0x02]` (30 s after the guest's `date`, clocks as-is); the
+  only other one in the log is 15:25:50 from the previous window. Host
+  baseline 15:46:22: `vfio-intx` 0, MSI `Enable-`. During the hang
+  (15:49:25): MSI `Enable+` address `fee00018`, `vfio-msi[0]` count 0 on
+  every CPU across 5 s.
+- Decoder (`read_gt_serial.py` 5389adf, `--msi flat`): 47 samples, 513 ms to
+  195737 ms. Before the submission all PTEs read with flags `0x001`
+  (`hwsPte`/`ggttPte0`/`lrcaPte` `0xe_4b757001`, `fbPte` `0x4_bdd5c001`), CSB
+  `0x7007`, `ERROR_GEN6` `0x37`. At 129396 ms those four PTEs change to flags
+  `0x08b`; at 129657 ms `rcsExecStatus` `0x40003018`, CSB `0`, `RING_RESET_CTL`
+  CATASTROPHIC, MI_MODE running, `ERROR_GEN6` `0x7b`, master IRQ enabled,
+  `rcsBcsIntrEn` `0x01100110`, `rcsHwsPga` `0x40004000`, `rcsInstdone`
+  `0xffdffffe`, `rcsCtxCtl` `0x100`, status-page PTE `0x1_3a99408b`.
+  **`rcsElst0/1`, `rcsPdp0`, `rcsGfxMode` and `rcsCtxStPtr` read 0 in every
+  sample.** Final GGTT entry 0 `0xe_4b75708b`; fault TLB `0x1f_ffffffff`;
+  GuC `0x1` (in reset). Forcewake: the probe's bit 2 cleared at the
+  submission, GT ack briefly 0 at 137940 ms, back at 145974 ms. Four reset
+  requests (170.9, 179.1, 187.4, 195.5 s), READY_TO_RESET never seen.
+  Verdict: NEVER EXECUTED, not an interrupt problem.
+
+Evidence: `~/work/igpu-notes/window-20261015-decode-d23b.txt` (guest);
+capture on the Proxmox host.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.

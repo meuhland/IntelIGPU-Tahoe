@@ -250,6 +250,14 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   already before start. Decoder output:
   `~/work/igpu-notes/window-20261016-decode-c4ea.txt` (guest); capture and
   full decode on the Proxmox host. Not interpreted further here.
+- 55-register watch window (2026-10-15 afternoon, probe `D23B0993`,
+  candidate `3a7cfb99`): same verdict, NEVER EXECUTED. `rcsElst0/1`, `rcsPdp0`,
+  `rcsGfxMode`, `rcsCtxStPtr` read 0 in every sample; at the submission the
+  status page, GGTT entry 0, LRCA and bring-up PTEs change flags `0x001` ->
+  `0x08b`, then CATASTROPHIC, `ERROR_GEN6` `0x7b`. Host DMAR write-to-0
+  (reason `0x02`) at 15:48:58, 30 s after `igpu-start` (15:48:28); MSI
+  `Enable+`, count 0. Facts only, not interpreted: port doc "55-register
+  watch window"; `~/work/igpu-notes/window-20261015-decode-d23b.txt`.
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On
