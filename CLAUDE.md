@@ -237,6 +237,19 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   `/root/vm113-serial-20261015-144420.log`, 109 samples extracted with
   `grep -oE 'ReimsGT [0-9]+ [0-9]+( [0-9a-f]{1,8})+'` into
   `/root/vm113-samples-20261015-144420.txt`; not yet interpreted.
+- Hang window with the full watch (2026-10-16, hold+watch probe `C4EA066E`,
+  45 registers in 5-part samples, none truncated; candidate `3a7cfb99`):
+  `read_gt_serial.py` verdict on the host: **NEVER EXECUTED, not an interrupt
+  problem** — RCS ACTHD never moved, ring off, `GT_INTR_DW0` 0, master IRQ
+  set, RCS interrupt enable PIPECTL_NOTIFY+CONTEXT_SWITCH with no IMR mask,
+  CSB write pointer never advanced, `RING_RESET_CTL` CATASTROPHIC from the
+  submission on, two reset requests without READY_TO_RESET, host MSI count
+  flat. Recorded registers at start include `ERROR_GEN6` 0x37->0x7b,
+  `EXECLIST_STATUS` 0x40003018, status page GGTT `0x40004000` -> PTE
+  `0x1_4b75708b`, and GGTT entry 0 `0x4_ff44b08b`; fault TLB 0x1f_ffffffff
+  already before start. Decoder output:
+  `~/work/igpu-notes/window-20261016-decode-c4ea.txt` (guest); capture and
+  full decode on the Proxmox host. Not interpreted further here.
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On
