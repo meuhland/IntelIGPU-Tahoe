@@ -82,8 +82,8 @@ registers too; **rebuild the hold probe again** (pre-load once).
 
 Next run of this section, additions:
 
-- Each sample now shows on serial as four `ReimsGT <seq> <ms> @0/@10/@20/@30 …`
-  lines (and the header as four `ReimsGT seq ms @… names` lines). None may
+- Each sample now shows on serial as five `ReimsGT <seq> <ms> @0/@10/@20/@30/@40 …`
+  lines (45 registers; the header as five `ReimsGT seq ms @… names` lines). None may
   be cut: if a line ends mid-value, report it.
 - Host, at three points: right after `qm start`, during the hang (after
   `igpu-start`), and after `qm stop`:
