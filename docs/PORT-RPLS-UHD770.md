@@ -1045,7 +1045,18 @@ present and a page-table problem would log reason `0x05`/`0x06` instead. So
 this fault says the GPU was still issuing **writes to address 0** when it was
 detached; it does not by itself show a bad mapping during the hang. Inside the
 VM a write to 0 would not fault at all; it would land in guest RAM at physical
-0. Its time relative to `qm start`/`qm stop` is not yet placed (runbook).
+0.
+
+Placed in time (host `dmesg -T`, 2026-10-15): the fault is at **14:53:14**,
+the only DMAR line; i915 rebound at 14:58:18 and loaded cleanly (GuC
+70.49.4, HuC authenticated, display up), and the next VM start at 15:18:05
+logged two vfio resets. The watch capture's last sample is about 567 s after
+it armed (~14:44), with `igpu-start` at +418 s (~14:51), so the fault lines up
+with stopping the hung VM: QEMU released the device, its IOMMU context went
+away, and the wedged GPU was still writing to address 0. That makes it likely
+the GPU was writing to address 0 all along during the hang, silently into
+guest RAM at 0. The hang therefore leaves the hardware recoverable by a plain
+VM stop and i915 rebind; no host reboot is needed.
 
 What would send GPU writes to 0: a valid GGTT entry whose address is 0. The
 engine's hardware status page, which the GPU writes on context events, is the
