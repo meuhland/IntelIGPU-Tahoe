@@ -1058,6 +1058,32 @@ the GPU was writing to address 0 all along during the hang, silently into
 guest RAM at 0. The hang therefore leaves the hardware recoverable by a plain
 VM stop and i915 rebind; no host reboot is needed.
 
+**Full-watch window (2026-10-16, probe `C4EA066E`, guest commit `498d37d`).**
+Same verdict, now with the status-page PTE. VM 113 has 16 GiB (no balloon),
+so on q35 guest RAM is about `0–0x7fffffff` plus `0x1_0000_0000` to about
+`0x4_7fffffff`:
+
+- RCS status page GGTT `0x40004000` → PTE `0x1_4b75708b`: valid, physical
+  `0x14b757000`, **inside guest RAM**. The status page is not the write to 0,
+  and its mapping is backed.
+- GGTT entry 0 → PTE `0x4_ff44b08b`: valid, physical `0x4ff44b000` (~20 GiB),
+  **outside guest RAM**: a stale host address left by i915 (like the host
+  framebuffer range below GGTT `0x2a80000`). The VM's IOMMU domain does not
+  map it, so a GPU access through GGTT page 0 would fault as reason
+  `0x05`/`0x06` at that address; none was logged before the hang.
+- Apple's own GGTT allocations start at 1 GiB (status page at `0x40004000`);
+  the low GGTT, which the framebuffer controller normally owns, still holds
+  host i915 leftovers.
+
+Neither mapping explains the write to `0x0`. Next candidate: PPGTT. Apple runs
+execlist contexts with PPGTT ("Graphics Address: PPGTT, Single Address
+Space"); a context whose page-table root (PDP/PML4 in the context image) is 0,
+or whose PPGTT entries point at 0, would make the engine walk and write
+around physical 0 and could raise the catastrophic error on the first context
+load. The error columns (`EIR`/`ESR`, `IPEIR`, `INSTDONE`,
+`EXECLIST_STATUS_HI`, `CONTEXT_CONTROL`) and the post-stop DMAR check should
+narrow that down.
+
 What would send GPU writes to 0: a valid GGTT entry whose address is 0. The
 engine's hardware status page, which the GPU writes on context events, is the
 prime candidate. The sampler now also reads the status page's own GGTT entry,
