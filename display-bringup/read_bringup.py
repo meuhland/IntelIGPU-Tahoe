@@ -28,6 +28,8 @@ if 'ReimsBringupResult' in p:
     print(f'ReimsBringupResult: {RESULTS[r] if r < len(RESULTS) else r}')
 # Stage 3: the GGTT range the framebuffer landed in (first unused one from
 # 16 MiB up inside GMADR) and the GMADR (BAR2) length that bounded the search.
+if 'ReimsBringupRefreshHz' in p:
+    print(f'ReimsBringupRefreshHz: {p["ReimsBringupRefreshHz"]}')
 for k in ('ReimsBringupFramebufferGGTT', 'ReimsBringupGMADRLength', 'ReimsBringupFramebufferFirstDMA'):
     if k in p:
         print(f'{k}: {p[k]:#x}')

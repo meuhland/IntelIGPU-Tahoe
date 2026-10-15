@@ -150,7 +150,15 @@ class ReimsDisplayBringup:public IOService {
   setProperty("ReimsBringupFramebufferGGTT",uint64_t(ggtt),32);
   setProperty("ReimsBringupFramebufferFirstDMA",dma[0],64);
   ReimsBringup::HdmiScanout<BarIO> init(io,kExecute);
-  const auto result=init.runScanout(ReimsBringup::kUhd30,{ggtt,pages,dma});
+#if defined(REIMS_BRINGUP_UHD60)
+  // 4K60: 594 MHz TMDS, HDMI 2.0 SCDC scrambling (hdmi_scdc.hpp) and the
+  // DDI scrambling bits; plane DDB/watermarks are host i915's 4K60 values.
+  constexpr const ReimsBringup::HdmiMode&mode=ReimsBringup::kUhd60;
+#else
+  constexpr const ReimsBringup::HdmiMode&mode=ReimsBringup::kUhd30;
+#endif
+  setProperty("ReimsBringupRefreshHz",uint64_t(mode.refreshHz),32);
+  const auto result=init.runScanout(mode,{ggtt,pages,dma});
   IOFree(dma,pages*sizeof(uint64_t));
   planeOn=kExecute&&(io.read(ReimsBringup::R4::planeCtl)&(1U<<31));
   if(!planeOn){

@@ -6,6 +6,7 @@ whether the reset populated them. i915 gen12_sseu_info_init expects the slice
 fuse to read 0x1 and the DSS fuse to be a nonzero mask.
 """
 import plistlib
+import struct
 import subprocess
 import sys
 
@@ -33,6 +34,31 @@ def fuses(prefix):
     print(f'  {prefix:12} slice={s:#010x} dss={d:#010x} eu_disable={p[f"{prefix}EUDisable"]:#010x} '
           f'media={p[f"{prefix}Media"]:#010x}{note}')
 
+
+# Interrupt inventory (every build). Types per IOKit: bit 0 = level (else
+# edge); 0x10000 = PCI MSI, 0x20000 = MSI-X (xnu IOInterrupts.h values).
+def int_type(t):
+    kind = 'MSI-X' if t & 0x20000 else 'MSI' if t & 0x10000 else 'INTx'
+    return f'{kind} {"level" if t & 1 else "edge"} ({t:#x})'
+
+
+if 'IntIndexCount' in p:
+    n = p['IntIndexCount']
+    print('interrupts:')
+    types = list(struct.unpack(f'<{n}I', p['IntTypes'])) if n and 'IntTypes' in p else []
+    for i, t in enumerate(types):
+        print(f'  index {i}: {int_type(t)}')
+    print(f'  indices={n} first_error={p.get("IntFirstError", 0):#x} '
+          f'specifiers={p.get("IntSpecifierCount")} controllers={p.get("IntControllersPresent")} '
+          f'IOPCIMSIMode={p.get("MSIModeProperty")}')
+    pin = p.get('IntPin', 0)
+    pin_name = 'none' if pin == 0 else ('INT' + 'ABCD'[pin - 1] if pin <= 4 else '?')
+    ctl = p.get('MSIControl', 0)
+    print(f'  config: interrupt pin={pin} ({pin_name}) line={p.get("IntLine")} '
+          f'MSI cap={p.get("MSICapOffset", 0):#x} MSI control={ctl:#06x} (enable={ctl & 1})')
+    if n == 0:
+        print('  -> no interrupt index on the IGD: a driver here cannot register any interrupt '
+              'unless MSI is configured for it first')
 
 print('geometry fuses:')
 fuses('Raw')

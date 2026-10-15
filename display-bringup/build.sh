@@ -5,6 +5,8 @@
 #   REIMS_DISPLAY_BRINGUP=1 REIMS_TARGET=rpls bash display-bringup/build.sh
 # Load (user, fresh snapshot): stage a root-owned copy, then
 #   sudo kmutil load -p /private/tmp/ReimsDisplayBringup.kext
+# REIMS_BRINGUP_UHD60=1 (stage 3): 3840x2160@60 (594 MHz, HDMI 2.0 SCDC
+# scrambling) instead of the default 4K30.
 # REIMS_GT_SAMPLER=1 adds a read-only GT register watch printed with kprintf
 # (needs serial=3 in boot-args and a VM serial port; docs/TEST-WINDOW-RPLS.md).
 # Read with display-bringup/read_bringup.py; unload with
@@ -21,6 +23,10 @@ case "$stage" in 2|3) ;; *) echo "REIMS_BRINGUP_STAGE must be 2 or 3" >&2; exit 
 flags=(-DREIMS_DISPLAY_BRINGUP=1 -DREIMS_BRINGUP_STAGE=$stage)
 mode="stage $stage dry-run"
 if [ "${REIMS_BRINGUP_EXECUTE:-}" = 1 ]; then flags+=(-DREIMS_BRINGUP_EXECUTE=1); mode="stage $stage EXECUTE"; fi
+if [ "${REIMS_BRINGUP_UHD60:-}" = 1 ]; then
+ [ "$stage" = 3 ] || { echo "REIMS_BRINGUP_UHD60 needs REIMS_BRINGUP_STAGE=3" >&2; exit 64; }
+ flags+=(-DREIMS_BRINGUP_UHD60=1); mode="$mode 4K60"
+fi
 # Read-only GT register watch on the serial console (gt_sampler.hpp).
 if [ "${REIMS_GT_SAMPLER:-}" = 1 ]; then flags+=(-DREIMS_GT_SAMPLER=1); mode="$mode + GT sampler"; fi
 sdk=$(xcrun --sdk macosx --show-sdk-path)
