@@ -1143,6 +1143,25 @@ Apple's own `IGHardwareRingBuffer::dumpRegistersRCS` dumps: `RCS_ELST0/1`
 `lrcaPte` (the GGTT PTE of the LRCA in `ELST0`). The decoder prints the
 context's GGTT entry and the PPGTT root and flags physical 0.
 
+**DMAR timing settled (host journal, 2026-10-15).** Nothing happened on the
+host at 15:25:50: no Proxmox task, no reset, no hookscript; the VM ran with
+the device attached until a `qmreset` at 15:29:18 (the logged `resetting`)
+and the stop at 15:31:06 (`post-stop` → i915 at 15:31:07). (Kernel
+`7.0.2-4-pve`: its reset-time blocking domain needs ATS and runs after bus
+master is cleared, and vfio's release reset is silent, so neither explains
+it.) Instead the fault lines up with **`igpu-start`**: in that capture the
+submission came 116.4 s after the probe armed, and arming ~15:23:54 (after the
+15:21:51 guest reboot) puts it at 15:25:50. The first window matches the same
+way: submission at +418.6 s and fault at 14:53:14 (armed ~14:46:15; the
+capture ran to ~14:55:42, then stop and i915 at 14:58:18). So **the GPU's
+DMA write to `0x0` happens at the first context submission**, the moment of
+`CAT_ERROR`, with the VM attached, and the IOMMU blocked it. That is what a
+context whose LRCA maps to physical 0 would do: on Gen12 execlists the
+engine's first writes for a context go to its per-process status page, page
+0 of the context image. Why the IOMMU reports reason `0x02` rather than a
+page-table fault while the device is attached is open; the next capture's
+`lrcaPte` should show the physical address.
+
 What would send GPU writes to 0: a valid GGTT entry whose address is 0. The
 engine's hardware status page, which the GPU writes on context events, is the
 prime candidate. The sampler now also reads the status page's own GGTT entry,
