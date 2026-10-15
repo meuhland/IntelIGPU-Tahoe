@@ -85,6 +85,10 @@ Next run of this section, additions:
 - Each sample now shows on serial as six `ReimsGT <seq> <ms> @0/@10/…/@50 …`
   lines (55 registers; the header as six `ReimsGT seq ms @… names` lines). None may
   be cut: if a line ends mid-value, report it.
+- **Note the wall-clock time of `igpu-start`** (`date` right before it). The
+  2026-10-15 write-to-0 faults turned out to come at the first context
+  submission, i.e. at `igpu-start`, not at the stop (PORT doc "DMAR timing
+  settled"); a fault at that time confirms it.
 - Host, at three points: right after `qm start`, during the hang (after
   `igpu-start`), and after `qm stop`:
   `dmesg -T | grep -iE 'dmar|iommu|vfio|00:02.0|igpu-hookscript' | tail -40`, plus
