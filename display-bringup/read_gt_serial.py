@@ -71,11 +71,13 @@ def parse(text):
             cols = pending[2]
             samples.append((pending[0], pending[1], {names[c]: cols[c] for c in sorted(cols) if c < len(names)}))
 
-    for raw in text.splitlines():
-        at = raw.find("ReimsGT")
-        if at < 0:
+    # A line cut at the console limit also loses its newline, so in a raw
+    # capture the next ReimsGT line follows on the same line: split on every
+    # occurrence, not only on line breaks.
+    for line in (c.rstrip() for c in re.split(r"(?=ReimsGT )", text)):
+        if not line.startswith("ReimsGT "):
             continue
-        line = raw[at:].rstrip()
+        line = line.splitlines()[0]
         header = HEADER.match(line)
         if header:
             part = header.group(2).split()

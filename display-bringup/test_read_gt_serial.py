@@ -219,6 +219,11 @@ class Decoder(unittest.TestCase):
         self.assertEqual(len(kept), (R.CONSOLE_LINE - len("ReimsGT 3 503")) // 9)
         self.assertEqual(list(kept), R.DEFAULT_NAMES[:len(kept)])
         self.assertIn("fbPteLo", R.truncated(samples))
+        # Raw capture: the cut line lost its newline, so the next sample (and
+        # other console output) follows on the same line.
+        raw = "kernel noise\n" + cut + line(23, 5524, **LIT)[:R.CONSOLE_LINE] + "\n[IGPU] something\n"
+        both = R.parse(raw)[1]
+        self.assertEqual([(s[0], s[1]) for s in both], [(3, 503), (23, 5524)])
         # A short garbled line (not at the limit) is still rejected.
         self.assertEqual(R.parse(full[:120])[1], [])
         out = "\n".join(R.summary(samples + samples))
