@@ -251,8 +251,11 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   end at `0x02a48000`, and the search landed on the next 256 KiB boundary,
   `0x02a80000`. On hardware: dry run `Planned` (0 blocked) chose `0x2a80000`
   inside 256 MiB GMADR; execute `OK`, `PLANE_SURFLIVE` `0x02a80000`, no
-  underrun, test pattern at 4K@30 on the monitor. Readouts
-  `~/work/igpu-notes/window-20261015-stage3-{dryrun,execute}.txt`. `findUnusedGgtt` (hdmi_scanout.hpp) picks the
+  underrun, test pattern at 4K@30 on the monitor. Restore verified: after
+  unloading the execute build and a guest reboot, a dry run chose
+  `0x2a80000` again (entries restored; the host mapping below it persists
+  across guest reboots, display registers do not). Readouts
+  `~/work/igpu-notes/window-20261015-stage3-{dryrun,execute,dryrun-after-unload}.txt`. `findUnusedGgtt` (hdmi_scanout.hpp) picks the
   first unused 256 KiB-aligned range (all 8100 entries identical) from 16 MiB
   up inside GMADR; `restoreGgtt` puts the original entry back on unload and on
   any failed run. Option C (`rpls_light.hpp`) uses the same search. Published

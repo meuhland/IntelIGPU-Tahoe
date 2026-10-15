@@ -354,7 +354,13 @@ New dry-run (`036B7152`) and execute (`EDB09CF6`, GT sampler) builds.
   256 KiB boundary `0x02a80000`), so it is most likely the host's mapping left
   across the handoff rather than an earlier bring-up run.
 
-Readouts: `~/work/igpu-notes/window-20261015-stage3-{dryrun,execute}.txt`.
+- Restore on unload: after unloading the execute build and rebooting the
+  guest, a dry run chose `0x2a80000` again, so `stop()` put the range's
+  entries back. The GGTT (stolen memory) survives a guest reboot, which is why
+  the host's mapping below it is still there; the display registers do not
+  (the dry run found the pipe off and planned the full sequence).
+
+Readouts: `~/work/igpu-notes/window-20261015-stage3-{dryrun,execute,dryrun-after-unload}.txt`.
 
 ## Stage 4: handoff to upstream
 
