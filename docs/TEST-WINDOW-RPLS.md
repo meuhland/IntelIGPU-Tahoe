@@ -47,9 +47,28 @@ python3 gt-reset-probe/read_gt_reset.py
 Do not unload the probe while the accelerator is running: unloading releases
 the hold.
 
+**Result 2026-10-15:** first row. Held fuses `1`/`3`/`0`/`0xe00fa` (both acks
+true), and HWCAPS then reported the real topology (1 slice, 4 sub-slices, 32
+EU, L3 4). `igpu-start` still hung after `Scheduler Throttle Cap = 100ms.`,
+silently (no reset, timeout or panic in 3–4 minutes). Details: PORT doc
+"Forcewake hold on hardware". Stage 3 was skipped (see below); it is not
+needed for the accelerator tests.
+
 ## In the window
 
-Stop at the first unexpected result, save evidence, and roll back the snapshot.
+Stop at the first unexpected result and save evidence. A hang in step 4 only
+needs `Ctrl-C` (that stops the `igpu-start` parent; its worker and the wedged
+accelerator stay) and a guest reboot. Roll back the snapshot only if the disk
+state is in doubt; a rollback also reverts any kexts installed since it.
+
+**Stage 3 currently refuses (since 2026-10-14).** The bring-up maps its
+framebuffer at GGTT `0x01000000`, and `hdmi_scanout.hpp` now refuses a GGTT
+range already in use. On these boots that range holds macOS's own console
+framebuffer (`IONDRVFramebuffer`), so steps 2–3 stop at the first check
+(`Scanout FAIL 0x808008`) before programming anything. Until the bring-up uses
+a free GGTT range, skip steps 2–3. A stage-2-only execute build
+(`REIMS_BRINGUP_STAGE=2 REIMS_BRINGUP_EXECUTE=1`) still runs, but it did not
+change the accelerator's fuse reads or the hang (2026-10-14).
 
 | # | Step | Expect | Captures |
 |---|---|---|---|
@@ -92,7 +111,10 @@ passed through across a guest reboot and the snapshot is untouched.
 AuxKC, so it needs no reboot. Confirmed on hardware 2026-10-13 (stage 3 `OK`,
 test pattern at 4K@30).
 
-Keep the host serial capture running (VM-PREP-RPLS.md step 9b). After step
+Keep the host serial capture running (VM-PREP-RPLS.md step 9b). Apple's own
+`[IGPU]` lines are the main readout: on 2026-10-14 and 2026-10-15 they named
+the zero fuses and the last line before the hang, while the sampler printed
+nothing during the hang. After step
 3 the console shows `ReimsGT seq ms <names…>` once, then a line whenever a
 sampled register changes and a heartbeat every 5 s. If step 4 wedges again,
 the last lines say where `startGraphicsEngine` stopped:

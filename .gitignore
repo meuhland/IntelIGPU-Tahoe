@@ -1381,3 +1381,6 @@ NootedGreen-main/tools/parsed.gdt
 NootedGreen-main/tools/parsed.gdt_CParser.out
 NootedGreen-main/tools/structsFB.h
 NootedGreen-main/tools/structsGFX.h
+
+# igpu-start evidence directories (written by session.py on the guest; per-run, not source)
+desktop-manual-20260917/fix/session-*-start/

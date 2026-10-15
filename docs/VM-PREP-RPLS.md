@@ -136,12 +136,16 @@ qm set 113 -serial0 socket
 
 In the guest's OpenCore `boot-args`, add `serial=3` next to `-allow3d`
 (kernel console and `kprintf` to COM1). During the window, capture it on the
-host from a second shell, before starting the VM (`qm terminal 113` also
-works interactively; exit with Ctrl-O):
+host from a second shell, before starting the VM:
 
 ```sh
 socat -u UNIX-CONNECT:/var/run/qemu-server/113.serial0 STDOUT | tee /root/vm113-serial-$(date +%Y%m%d-%H%M%S).log
 ```
+
+The socket takes **one reader**. If `qm terminal 113` or the Proxmox web
+console is attached, `socat` reads nothing and the log stays empty (this
+happened on 2026-10-14). Use `qm terminal 113` (exit with Ctrl-O) only when
+you are not capturing to a file.
 
 ## 10. Reboot and check (iGPU still on the host)
 
