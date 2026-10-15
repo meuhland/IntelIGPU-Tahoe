@@ -226,6 +226,17 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   `ReimsGTWatch: True` (open, for the offline session). Evidence:
   `~/work/igpu-notes/window-20261016-hold-watch.txt`; host capture
   `/root/vm113-watch-20261015-143036.log`.
+- Hang window with the IOLog watch (2026-10-15 late, hold+watch probe
+  `52A1E7E4`, candidate `3a7cfb99`): the watch now reaches serial, but each
+  IOLog line is cut at 255 characters and loses its newline, so samples run
+  into the next line and `read_gt_serial.py` found none. Fields 1-26 (up to
+  `RING_IMR`) survive the cut; `rcsEir`, `rcsEsr`, `rcsHwsPga`, `transconfA`,
+  `surfLiveA` and the PTE words do not. Fix offline: split each sample over
+  short lines, or let the decoder find samples mid-line. Host MSI again
+  `Enable+`, `vfio-msi[0]` count 0 across 5 s. Raw capture (Proxmox host):
+  `/root/vm113-serial-20261015-144420.log`, 109 samples extracted with
+  `grep -oE 'ReimsGT [0-9]+ [0-9]+( [0-9a-f]{1,8})+'` into
+  `/root/vm113-samples-20261015-144420.txt`; not yet interpreted.
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On
