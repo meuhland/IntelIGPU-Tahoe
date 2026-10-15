@@ -1084,6 +1084,28 @@ load. The error columns (`EIR`/`ESR`, `IPEIR`, `INSTDONE`,
 `EXECLIST_STATUS_HI`, `CONTEXT_CONTROL`) and the post-stop DMAR check should
 narrow that down.
 
+**DMAR timing, second occurrence (host `dmesg -T`, 2026-10-15).** Baseline
+before the kext (15:21): no DMAR line; the single vfio reset at 15:21:49 was
+the guest reboot that loaded the probe. Then:
+
+| time | host event |
+|---|---|
+| 15:25:50 | `DMA Write … [00:02.0] fault addr 0x0 [fault reason 0x02]` (one line) |
+| ~15:28 | `qm stop` (per the guest session) |
+| 15:29:17 | one vfio reset (QEMU teardown) |
+| 15:31:05 | i915 rebound, GuC/HuC/display OK |
+
+The fault is about 2–3 min **before** the stop, as on the first occurrence
+(14:53:14, i915 back at 14:58:18). So it is not the teardown: some earlier
+event left `00:02.0` briefly without an IOMMU context entry while the hung
+GPU was writing to address 0. The likely event is the guest's reboot/shutdown
+after the hang (runbook: Ctrl-C, then reboot). Open: the exact guest action at
+15:25:50 and the host kernel version (recent kernels can attach a blocking
+IOMMU domain around a device reset, which would log reason `0x02` for DMA in
+flight). The fact that holds either way: while hung, the GPU keeps issuing
+DMA **writes to address 0**, which in the attached VM land silently in guest
+RAM at 0.
+
 What would send GPU writes to 0: a valid GGTT entry whose address is 0. The
 engine's hardware status page, which the GPU writes on context events, is the
 prime candidate. The sampler now also reads the status page's own GGTT entry,
