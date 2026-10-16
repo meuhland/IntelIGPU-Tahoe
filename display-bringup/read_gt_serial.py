@@ -36,6 +36,9 @@ DEFAULT_NAMES = [
     "rcsCcid", "rcControl", "rcState", "pgEnable",
     "rc6Location", "rc6CtxBase",
     "lrcaPteLo", "lrcaPteHi",
+    "pocsReset", "pocsExecStatus", "pocsMiMode",
+    "pocsHwsPga", "pocsCtxCtl",
+    "ccsReset", "ccsExecStatus", "rcuMode",
     "transconfA", "surfLiveA",
     "fbPteLo", "fbPteHi",
 ]
@@ -343,6 +346,18 @@ def summary(samples):
         out.append(f"  RC6/PG: RC_CONTROL 0x{s['rcControl']:08x}, RC_STATE 0x{s['rcState']:08x}, PG_ENABLE "
                    f"0x{s['pgEnable']:08x}, RC6_LOCATION 0x{s['rc6Location']:08x}, RC6_CTX_BASE 0x{s['rc6CtxBase']:08x}"
                    + (" (RC6 off)" if not s["rcControl"] else " (RC6 ON: the GPU saves its power context at RC6_CTX_BASE)"))
+    for eng, name in (("pocs", "POCS (POSH)"), ("ccs", "CCS (compute)")):
+        if eng + "Reset" in s:
+            first, last = samples[0][2].get(eng + "ExecStatus", 0), s[eng + "ExecStatus"]
+            out.append(f"  {name} RESET_CTL {reset(s[eng + 'Reset'])}, EXECLIST_STATUS 0x{first:08x} -> 0x{last:08x}"
+                       + (f", MI_MODE {mimode(s[eng + 'MiMode'])}" if eng + "MiMode" in s else "")
+                       + (f", HWS_PGA 0x{s[eng + 'HwsPga']:08x}" if eng + "HwsPga" in s else "")
+                       + (f", CONTEXT_CONTROL 0x{s[eng + 'CtxCtl']:08x}" if eng + "CtxCtl" in s else ""))
+            if s[eng + "Reset"] >> 2 & 1:
+                out.append(f"    -> {name} is in CATASTROPHIC error: this engine faulted, not only RCS.")
+    if "rcuMode" in s:
+        out.append(f"  GEN12_RCU_MODE 0x{s['rcuMode']:08x} (CCS mode {'ON' if s['rcuMode'] & 1 else 'off'}; "
+                   "i915 never enables it on Gen12 LP).")
     if "rcsGfxMode" in s:
         out.append(f"  RCS GFX_MODE 0x{s['rcsGfxMode']:08x} (bit 3 DISABLE_LEGACY_MODE "
                    f"{'set' if s['rcsGfxMode'] & 8 else 'clear, as Apple initModeRegisters writes it'}).")

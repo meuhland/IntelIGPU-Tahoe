@@ -1,5 +1,17 @@
 // Generated from the hash-checked approved runtime. Do not edit, except that
-// revision-id is spliced from common/reims_target.hpp (REIMS_REVISION_B64).
+// revision-id is spliced from common/reims_target.hpp (REIMS_REVISION_B64)
+// and, for the opt-in rpls no-CCS build (REIMS_RPLS_NO_CCS, set by
+// scripts/target-flags.sh), EnableMultiContext in runtime_profiles is 0.
+// That bit (IntelAccelerator +0x1190 bit 33) keeps the CCS engine in the mask
+// (start 0x240e6) and enables CCS in GEN12_RCU_MODE (initModeRegisters 0x28e89).
+#if defined(REIMS_RPLS_NO_CCS)
+#if !defined(REIMS_TARGET_RPLS)
+#error REIMS_RPLS_NO_CCS is an rpls-only experiment
+#endif
+#define REIMS_MULTI_CONTEXT "0"
+#else
+#define REIMS_MULTI_CONTEXT "1"
+#endif
 static const char selftest_profiles[] = R"REIMS(<array>
 	<dict>
 		<key>CFBundleIdentifier</key>
@@ -52,7 +64,7 @@ static const char runtime_profiles[] = R"REIMS(<array>
 			<key>EUThrottle</key>
 			<integer>0</integer>
 			<key>EnableMultiContext</key>
-			<integer>1</integer>
+			<integer>)REIMS" REIMS_MULTI_CONTEXT R"REIMS(</integer>
 			<key>EnablePlaneRotation</key>
 			<integer>0</integer>
 			<key>EnablePreemption</key>

@@ -26,6 +26,48 @@ It prints `built ReimsGTResetProbe.kext (HOLD …)`. It is a new binary: load it
 once before the window (iGPU still on the host, it refuses without the
 target and changes nothing) so any approval/reboot is out of the way.
 
+### Host engine check (no window, 2026-10-16)
+
+Run this before the next window. VM 113 stays stopped and i915 stays bound
+(the host's normal state), and LXC transcoding can keep running. The check
+only reads registers, while i915's debugfs `i915_forcewake_user` keeps the GT
+awake. It answers whether this GT1 has the POSH engine (POCS) and the compute
+engine (CCS). Apple drives both, and i915 drives neither on Gen12 LP
+([PORT-RPLS-UHD770.md](PORT-RPLS-UHD770.md), "Static trace of the suspects").
+
+```sh
+curl -fsSL -o /root/coldgt_check.py https://raw.githubusercontent.com/meuhland/IntelIGPU-Tahoe/uhd770-port/proxmox/coldgt_check.py
+python3 /root/coldgt_check.py engines
+python3 /root/coldgt_check.py engines --json > /root/engines-$(date +%Y%m%d-%H%M%S).json
+```
+
+Expect a table of RCS, POCS, CCS, BCS, VCS0/1/2 and VECS0/1. Live engines
+read `mi_mode` `00000200` (idle) and a nonzero `instdone`. VCS1 and VECS1
+are fused off on ADL-S and show what "absent" reads as. A `refused: …
+debugfs` line means debugfs is not mounted: `mount -t debugfs none
+/sys/kernel/debug`. A raw read of a missing engine can make i915 print one
+"Unclaimed access" warning in dmesg; it is harmless.
+
+| Result | Next window |
+|---|---|
+| POCS reads like VCS1 (no POSH engine) | Candidate with `REIMS_RPLS_NO_POSH=1`, then rebuild the gate (new candidate UUID) |
+| CCS reads like VCS1 (no compute engine) | Gate with `REIMS_RPLS_NO_CCS=1` (`EnableMultiContext` 0) |
+| Both answer | Default candidate with the 66-column watch; read the POCS/CCS lines at the fault, then try the variants as second and third attempts |
+
+Paste the table and the `=>` lines back for the offline session, along with
+the JSON (it has the `GT_CONFIG` values i915 left).
+
+Building the variants on the guest (each one is a new binary and needs
+approval once before the window):
+
+```sh
+REIMS_TARGET=rpls REIMS_RPLS_NO_POSH=1 python3 desktop-manual-20260917/fix/prepare-deferred-runtime.py <TGL bundle>
+REIMS_TARGET=rpls REIMS_RPLS_NO_CCS=1 bash desktop-manual-20260917/fix/manual-gate/build.sh
+```
+
+The builder refuses to overwrite an existing candidate. Move the reviewed one
+aside first. `deferred-runtime.json` records `posh_patch` when it was applied.
+
 ### Next window: forcewake hold, then `igpu-start`
 
 After step 1 below (VM booted, IGD isolated), before stage 3 and `igpu-start`:
@@ -82,8 +124,9 @@ registers too; **rebuild the hold probe again** (pre-load once).
 
 Next run of this section, additions:
 
-- Each sample now shows on serial as six `ReimsGT <seq> <ms> @0/@10/…/@50 …`
-  lines (52 registers; the header as six `ReimsGT seq ms @… names` lines). None may
+- Each sample now shows on serial as seven `ReimsGT <seq> <ms> @0/@10/…/@60 …`
+  lines (66 registers since 2026-10-16 afternoon, POCS/CCS/`RCU_MODE` added;
+  the header as seven `ReimsGT seq ms @… names` lines). None may
   be cut: if a line ends mid-value, report it.
 - **New in this build: one-shot dumps at the first submission.** When the
   submit queue (`0x2510`) first shows a context, the probe prints

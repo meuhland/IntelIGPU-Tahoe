@@ -1364,15 +1364,16 @@ terminal, so only what is in the guest notes survives. Evidence:
   `POSH_LRCA`. Its status page, register-state page and ring all have valid
   GGTT PTEs into guest RAM (`0x1_35…`/`0x1_38…`, inside the 4–18 GiB part of
   the 16 GiB guest), none at physical 0. The memory is right.
-- **`CONTEXT_CONTROL` `0xffff0011` explains the register readback.** Bit 0
-  is `CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT`: the engine does not restore the
-  image. i915 does the same for its first context when no default state
-  exists yet (`lrc_init_regs(…, inhibit)`, before `engines_record_defaults`),
-  and Apple's first context is the one that creates the golden image. So
-  `CONTEXT_CONTROL` reading back `0x100` rather than the image value, and
-  `R_PWR_CLK_STATE` `0x80000000` vs i915's `0x80041000`, say nothing yet:
-  neither is loaded from this image. The Linux control ran the same
-  restore-inhibited first submission on this VM without a fault.
+- **`CONTEXT_CONTROL` `0xffff0011`: restore inhibit does NOT explain the
+  readback** (corrected later the same day; see "Static trace" below). Bit 0
+  is `CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT`, as i915 sets for its first
+  context (`lrc_init_regs(…, inhibit)`). But the TGL PRM (vol 8, "Logical
+  Ring Context Format") says it inhibits only the *engine* context; the ring
+  context (`CONTEXT_CONTROL`, `RING_HEAD/TAIL/START/CTL`, the PDPs) is still
+  restored. So `CONTEXT_CONTROL` reading `0x100` and the ring registers
+  staying 0 mean **the ring context was never restored**: the engine failed
+  at or before fetching page 1. `R_PWR_CLK_STATE` is engine context and is
+  not restored on this submission, so its value says nothing.
 - **Remaining differences from i915's first context:**
   - `CONTEXT_CONTROL` value bits: Apple sets bits 0 and 4; i915 sets bits 0
     and 3 (`CTX_CTRL_INHIBIT_SYN_CTX_SWITCH`). Bit 4 is not defined in
@@ -1400,6 +1401,82 @@ from `0x40000000` that prints only entries not valid or valid at physical 0
 (`ReimsGT gttbad`, at most 48) and one `ReimsGT gttscan` summary. The decoder
 decodes the POSH/SQ1 restore lists, counts present root entries and flags
 any at physical 0, and summarises the scan.
+
+#### Static trace of the suspects (offline, 2026-10-16 afternoon)
+
+Read from the `sle` binary (`IGHardwareContext::initWithOptions` `0x7b9d4`,
+`IntelAccelerator::startGraphicsEngine` `0x25100`, `start` `0x23ecc`,
+`initModeRegisters` `0x28e1a`, `initHardwareStatusPageRegisters` `0x28f34`,
+`populateAccelConfig`) and the public TGL/RKL PRMs.
+
+- **SQ1 is by design.** `startGraphicsEngine` creates two contexts from
+  `g_cInitGfxHwCtxParamsForGraphics`, submits a stamp on A, then B, then A
+  again, waits (`finishAllStamps`) and copies A's image as the golden "safe
+  image". Two valid elements in the first submission (A = sw id 1, B = sw
+  id 2) are that sequence; the switch to B is what makes the hardware save
+  A. Not a fault by itself.
+- **The execlist status, per Apple's own decoder.**
+  `IGHardwareRingBuffer::dumpExecutionListStatus` reads `EXECLIST_STATUS`
+  `0x40003018` as: current pointer 0, write pointer 0, queue not full,
+  **ExecList0 and ExecList1 valid**, neither active. The engine accepted both
+  elements and never made one active.
+- **Restore inhibit inhibits only the engine context** (TGL PRM vol 8):
+  the ring context is always restored. With `CONTEXT_CONTROL` reading `0x100`
+  and `RING_*` 0, the first `MI_LOAD_REGISTER_IMM` of page 1 never ran. The
+  failure is at or before the fetch of the context image; nothing inside the
+  image (RPCS, `CONTEXT_CONTROL` value bits) can have caused it.
+- **POSH is unconditional for Metal graphics.** The params block's flags
+  word is `0x1c`; bit `0x10` makes `initWithOptions` allocate a 16 KiB POSH
+  image (`+0xa0`), copy `g_cInitGfxRingContextPOCS` (LRI to `0x18244…`, the
+  POCS ring registers) into it, write its address into the RCS image's
+  `POSH_LRCA` slot (`+0x10d8`), and set `CONTEXT_CONTROL` bit 4 (masked
+  `0x100010`) in the RCS image and bits 0 and 4 (`0x110011`) in the POSH
+  image. `initRingGPUVirtualAddress`/`initRingControl`/`resetRingHead` write
+  the same ring into both images (POCS fetches the RCS ring).
+  `initHardwareStatusPageRegisters` programs the POCS status page
+  (`0x18080`) unconditionally. Every other params block is `0x0c`:
+  `ForGraphicsGL`, `ForCompute`, `ForVideoMain`. `intelPopulateSharedDeviceSettings`
+  sets the shared POSH and PTBR features with no hardware check, and
+  `[IGPU] POSH Enabled` is logged unconditionally. The Metal bundle's
+  `PoshDisable` (Info.plist `Development`) only affects user space.
+- **CCS and `RCU_MODE` follow `EnableMultiContext`** (gate personality: 1).
+  It sets config bit 33 (`+0x1190`): `start` keeps the CCS engine (`0x1a000`,
+  `kIGHwCsDesc` entry 1) in the engine mask only when it is set (`0x240e6`),
+  and `initModeRegisters` writes `GEN12_RCU_MODE` (`0x14800`) with
+  `CCS_ENABLE` = that bit. i915 never enables CCS on Gen12 LP
+  (`xehp_enable_ccs_engines` is Xe-HP only). Compute contexts go to CCS
+  (`ForParallelCompute`, engine 1) instead of RCS.
+- **Hardware presence is the open question.** The TGL PRM vol 8 lists POCS
+  (`0x18000`) and CCS0 (`0x1a000`) as command streamers; the RKL
+  configurations volume (Gen12 desktop GT1, 32 EU, the closest public
+  relative of the UHD 770) says it "maintains the POSH pipeline". No ADL-S
+  PRM is public. ADL-P runs the same POSH and CCS settings and works, so
+  these matter only if this GT1 lacks the engine or wires it differently.
+- `startGraphicsEngine` also writes ~60 GT configuration registers (chicken
+  bits, L3/`L3SQCREG1` `0xb100`, MCR steering `0xfdc` from fuse `0x9120`,
+  PSMI `0x2050`/`0x1a050`, `0x18088`, `0x180d8`). The list is in
+  `proxmox/coldgt_check.py` (`GT_CONFIG`). The host check reads i915's values
+  for comparison.
+
+**Built:**
+- `proxmox/coldgt_check.py engines`, a host check that needs no VM window.
+  Run it with VM 113 stopped and i915 bound; it only reads, under i915's own
+  debugfs `i915_forcewake_user`. It prints MI_MODE/INSTDONE/IMR/RESET_CTL/
+  HWS_PGA/MODE/EXECLIST_STATUS/CONTEXT_CONTROL/ACTHD for RCS, POCS, CCS, BCS,
+  VCS0/1/2 and VECS0/1. VCS1 and VECS1 are fused off on ADL-S, so they show
+  what "absent" reads as. It also dumps the `GT_CONFIG` registers. The
+  verdict says whether POCS answers like a live engine.
+- Two opt-in variants, both off by default; the default builds are unchanged
+  and candidate `3a7cfb99` stays byte-identical:
+  - `REIMS_RPLS_NO_POSH=1`: the candidate builder changes the Metal graphics
+    params flags `0x1c` to `0x0c` (file `0xb0bc2`, `__TEXT,__const`, no
+    relocation), the same flags as GL graphics contexts.
+  - `REIMS_RPLS_NO_CCS=1`: the gate's personality gets `EnableMultiContext`
+    0, so CCS is left out and stays off in `RCU_MODE`.
+- Sampler: 8 more columns (66, seven parts): POCS `RESET_CTL`/
+  `EXECLIST_STATUS`/`MI_MODE`/`HWS_PGA`/`CONTEXT_CONTROL`, CCS
+  `RESET_CTL`/`EXECLIST_STATUS`, `GEN12_RCU_MODE`. The decoder flags a POCS
+  or CCS in CATASTROPHIC error and prints the CCS mode.
 
 ## Prior art
 

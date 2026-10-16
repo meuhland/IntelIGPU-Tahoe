@@ -69,6 +69,15 @@ constexpr Reg regs[]={
  {0x002180,"rcsCcid"},{0x00a090,"rcControl"},{0x00a094,"rcState"},{0x00a210,"pgEnable"},
  {0x000d40,"rc6Location"},{0x000d48,"rc6CtxBase"},
  {0,"lrcaPteLo",3},{0,"lrcaPteHi",4},
+ // POSH and CCS (2026-10-16 static trace). Apple builds every Metal graphics
+ // context with a POSH context for the POCS (base 0x18000, TGL PRM vol 8) and,
+ // with EnableMultiContext, keeps the CCS (0x1a000) and enables it in
+ // GEN12_RCU_MODE (0x14800, i915 intel_gt_regs.h). Neither engine is used by
+ // i915 on Gen12 LP. Their reset/execlist state shows whether either is the
+ // engine that faults at the first submission.
+ {0x0180d0,"pocsReset"},{0x018234,"pocsExecStatus"},{0x01809c,"pocsMiMode"},
+ {0x018080,"pocsHwsPga"},{0x018244,"pocsCtxCtl"},
+ {0x01a0d0,"ccsReset"},{0x01a234,"ccsExecStatus"},{0x014800,"rcuMode"},
  {0x070008,"transconfA"},{0x0701ac,"surfLiveA"},
  // GGTT PTE of the bring-up's first framebuffer page (GGTT 0x01000000):
  // ggttBase 0x800000 + (0x01000000 >> 12) * 8, as hdmi_scanout.hpp writes it.

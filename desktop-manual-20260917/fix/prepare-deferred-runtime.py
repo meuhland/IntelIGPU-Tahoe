@@ -109,6 +109,24 @@ if forcewake_patch:
     assert b[forcewake_site-4:forcewake_site+2]==bytes.fromhex('0fbae00b'+'7231')
     assert not any(forcewake_site<=a<forcewake_site+2 for a in relocs)
     edits.append((forcewake_site,b'\xeb\x31'))
+# RPL-S POSH off (opt-in, REIMS_RPLS_NO_POSH=1; untested on hardware). Every
+# Metal graphics context, the two startGraphicsEngine creates for the golden
+# image included, is built from g_cInitGfxHwCtxParamsForGraphics, whose flags
+# word (0x1c) carries bit 0x10: IGHardwareContext::initWithOptions then
+# allocates a POSH context, copies g_cInitGfxRingContextPOCS into it, links it
+# through POSH_LRCA and sets CONTEXT_CONTROL bit 4, with no hardware check
+# (2026-10-16). Every other params block (GL graphics, compute, video) has
+# 0x0c. Give Metal graphics contexts the GL flags so no context uses POSH.
+# __TEXT,__const, no relocation.
+posh_site=0xb0bc2
+posh_patch=target_name=='rpls' and os.environ.get('REIMS_RPLS_NO_POSH')=='1'
+if posh_patch:
+    assert values['__ZL32g_cInitGfxHwCtxParamsForGraphics']==0xb0bc0
+    assert values['__ZL34g_cInitGfxHwCtxParamsForGraphicsGL']==0xbf350
+    assert b[0xb0bc0:0xb0bcc]==bytes.fromhex('00001c00'+'00000000'+'00000000')
+    assert b[0xbf350:0xbf35c]==bytes.fromhex('00000c00'+'00000000'+'00000000')
+    assert not any(0xb0bc0<=a<0xb0bcc for a in relocs)
+    edits.append((posh_site,b'\x0c'))
 patched=bytearray(b)
 for at,new in edits:patched[at:at+len(new)]=new
 # Every byte outside the edits is unchanged.
@@ -151,5 +169,8 @@ if target_name=='rpls':
     if forcewake_patch:
         record['forcewake_file_offset']=hex(forcewake_site)
         record['forcewake_patch']='IntelAccelerator::SafeForceWake: always the refcounted hardware path (standalone callback is an empty stub)'
+    if posh_patch:
+        record['posh_file_offset']=hex(posh_site)
+        record['posh_patch']='g_cInitGfxHwCtxParamsForGraphics flags 0x1c->0x0c: Metal graphics contexts without POSH (as GL)'
 (base/'deferred-runtime.json').write_text(json.dumps(record,indent=2)+'\n')
 print(json.dumps(record,indent=2))

@@ -17,10 +17,19 @@ Run as root on the Proxmox host with VM 113 stopped. Steps:
              idle D3 does to the device; then raw + forcewake read
   gdrst      forcewake, GEN6_GDRST full reset (i915 sequence), read, release
   all        read, forcewake, flr, pm, gdrst in that order
+  engines    which command streamers answer, POCS (0x18000) included (not in 'all')
 
 Everything except `read` writes to the GPU and needs the device on vfio-pci (or
-no driver) with no VM holding it. Register facts mirror gt-reset-probe/gt_reset.hpp
+no driver) with no VM holding it. Exception: `engines` under i915 only reads,
+holding i915's own debugfs i915_forcewake_user, so it runs in the host's normal
+state (VM stopped, i915 bound). Register facts mirror gt-reset-probe/gt_reset.hpp
 (verified against i915 v6.6).
+
+Why `engines` (2026-10-16): Apple's TGL kext builds every graphics context with
+a POSH context (g_cInitGfxHwCtxParamsForGraphics flags 0x1c, bit 0x10) and points
+the POCS at a status page, with no hardware check. If this GT1 has no POCS, the
+first context load references an engine that is not there. A live engine reads
+MI_MODE/INSTDONE/IMR nonzero; an absent one reads 0 like the fused-off VCS1.
 """
 import argparse
 import json
@@ -37,7 +46,34 @@ GDRST, GRDOM_FULL = 0x941c, 1 << 0
 FW_RENDER = (0xa278, 0xd84)
 FW_GT = (0xa188, 0x130044)
 FW_KERNEL = 1 << 0  # i915's requester bit; Apple's SafeForceWake uses bit 1 (--fw-bit 1)
-MAP_LEN = 0x140000  # covers the highest register used (0x130044)
+MAP_LEN = 0x1e0000  # covers the highest register used (VECS1 0x1d8000 + 0x29c)
+
+# Command streamers (i915 intel_engine_regs.h / Apple's kIGHwCsDesc) and their
+# forcewake domain. POCS has no i915 entry: base 0x18000 is from the TGL PRM
+# vol 8 and Apple's POCS context template (0x18244...). CCS at 0x1a000 is in
+# Apple's table but not exposed by i915 on Gen12 LP. VCS1/VECS1 are fused off
+# on ADL-S (i915 platform_engine_mask has VCS0, VCS2, VECS0), the absent baseline.
+ENGINES = (('rcs', 0x2000, 'render'), ('pocs', 0x18000, 'render'), ('ccs', 0x1a000, 'gt'),
+           ('bcs', 0x22000, 'gt'), ('vcs0', 0x1c0000, 'vdbox0'), ('vcs1', 0x1c4000, 'vdbox1'),
+           ('vcs2', 0x1d0000, 'vdbox2'), ('vecs0', 0x1c8000, 'vebox0'), ('vecs1', 0x1d8000, 'vebox1'))
+# Read-only per-engine registers: RING_MI_MODE, INSTDONE, IMR, RESET_CTL,
+# HWS_PGA, RING_MODE, EXECLIST_STATUS_LO, CONTEXT_CONTROL, ACTHD.
+ENGINE_REGS = (('mi_mode', 0x9c), ('instdone', 0x6c), ('imr', 0xa8), ('reset_ctl', 0xd0),
+               ('hws_pga', 0x80), ('mode', 0x29c), ('execlist_status', 0x234),
+               ('ctx_ctl', 0x244), ('acthd', 0x74))
+# Media forcewake (i915 FORCEWAKE_MEDIA_VDBOX/VEBOX_GEN11 and their acks).
+FW_MEDIA = {f'vdbox{n}': (0xa540 + 4 * n, 0x0d50 + 4 * n) for n in range(3)}
+FW_MEDIA.update({f'vebox{n}': (0xa560 + 4 * n, 0x0d70 + 4 * n) for n in range(2)})
+# Every GT register Apple's IntelAccelerator::startGraphicsEngine (0x25100) and
+# initModeRegisters (0x28e1a) write, plus the fuse 0x9120 it steers MCR from.
+# Read here under i915 they give i915's configuration on this chip, to compare
+# offline with the values Apple writes (docs/PORT-RPLS-UHD770.md).
+GT_CONFIG = (0x0fdc, 0x2050, 0x2090, 0x20a0, 0x20d8, 0x20e0, 0x20e4, 0x20ec, 0x2214, 0x2248, 0x229c,
+             0x2580, 0x25a4, 0x24d0, 0x24d4, 0x24d8, 0x24dc, 0x24e0, 0x24f0, 0x24f4, 0x24f8, 0x24fc,
+             0x4a08, 0x4ab8, 0x4ddc, 0x5584, 0x6604, 0x7000, 0x7004, 0x7010, 0x7014, 0x7300, 0x7304,
+             0x83a4, 0x9120, 0x9424, 0x9434, 0x94d4, 0x9528, 0xb000, 0xb004, 0xb100, 0xb104, 0xb10c,
+             0xb118, 0xb11c, 0xb120, 0xb404, 0xb43c, 0xce90, 0xcf08, 0xe180, 0xe184, 0xe18c, 0xe194,
+             0xe48c, 0xe4f0, 0xe4f4, 0xe5f0, 0x14800, 0x18088, 0x180d8, 0x1a050, 0x1a4d0, 0x42080)
 
 PCI_COMMAND, CMD_MEMORY = 0x04, 1 << 1
 ALL_ONES = 0xffffffff
@@ -51,6 +87,7 @@ class SysfsDevice:
     """The real device: sysfs config space, BAR0 mmap, sysfs function reset."""
 
     def __init__(self, bdf):
+        self.bdf = bdf
         self.path = f'/sys/bus/pci/devices/{bdf}'
         self._mm = None
         self._regs = None
@@ -99,6 +136,33 @@ class SysfsDevice:
             except OSError:
                 continue
         return sorted(users)
+
+    def user_forcewake_path(self):
+        """i915's debugfs i915_forcewake_user for this device, or None.
+
+        While the file is open i915 holds FORCEWAKE_ALL (intel_gt_pm_debugfs.c),
+        so registers read live without this script writing to the GPU.
+        """
+        root = '/sys/kernel/debug/dri'
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
+            return None
+        for n in names:
+            d = f'{root}/{n}'
+            try:
+                with open(f'{d}/name') as f:
+                    if self.bdf not in f.read() and n != self.bdf:
+                        continue
+            except OSError:
+                if n != self.bdf:
+                    continue
+            if os.path.exists(f'{d}/i915_forcewake_user'):
+                return f'{d}/i915_forcewake_user'
+        return None
+
+    def hold_user_forcewake(self):
+        return open(self.user_forcewake_path(), 'rb')
 
     def map_bar0(self):
         fd = os.open(f'{self.path}/resource0', os.O_RDWR | os.O_SYNC)
@@ -262,9 +326,42 @@ def step_gdrst(dev):
     return with_forcewake(dev, body)
 
 
+def read_engines(dev):
+    return {name: {r: dev.read32(base + off) for r, off in ENGINE_REGS} for name, base, _ in ENGINES}
+
+
+def read_gt_config(dev):
+    return {f'{off:#x}': dev.read32(off) for off in GT_CONFIG}
+
+
+def answers(regs):
+    """A command streamer that exists reads nonzero idle/mask state."""
+    return any(regs[k] not in (0, ALL_ONES) for k in ('mi_mode', 'instdone', 'imr', 'reset_ctl'))
+
+
+def step_engines(dev):
+    if getattr(dev, 'via_i915', False):
+        f = dev.hold_user_forcewake()
+        try:
+            return {'held': 'i915_forcewake_user', 'engines': read_engines(dev),
+                    'gt_config': read_gt_config(dev)}
+        finally:
+            f.close()
+    bit = getattr(dev, 'fw_bit', FW_KERNEL)
+    domains = [FW_RENDER, FW_GT] + [FW_MEDIA[d] for _, _, d in ENGINES if d in FW_MEDIA]
+    acked = [acquire_forcewake(dev, req, ack, bit) for req, ack in domains]
+    try:
+        return {'held': 'register forcewake', 'acked': acked, 'engines': read_engines(dev),
+                'gt_config': read_gt_config(dev)}
+    finally:
+        for req, _ in domains:
+            release_forcewake(dev, req, bit)
+
+
 STEPS = {'read': step_read, 'forcewake': step_forcewake, 'flr': step_flr, 'pm': step_pm,
-         'gdrst': step_gdrst}
-ORDER = ('read', 'forcewake', 'flr', 'pm', 'gdrst')
+         'gdrst': step_gdrst, 'engines': step_engines}
+ORDER = ('read', 'forcewake', 'flr', 'pm', 'gdrst')  # 'all'
+SEQUENCE = ORDER + ('engines',)
 
 
 def preflight(dev, steps, wake, enable_decode):
@@ -273,7 +370,13 @@ def preflight(dev, steps, wake, enable_decode):
     if (vendor, device) != (VENDOR, DEVICE):
         raise Refused(f'device is {vendor:04x}:{device:04x}, expected {VENDOR:04x}:{DEVICE:04x}')
     drv = dev.driver()
-    writes = any(s != 'read' for s in steps)
+    # 'engines' only reads under i915, which holds forcewake for it.
+    read_only = {'read', 'engines'} if drv == 'i915' else {'read'}
+    writes = any(s not in read_only for s in steps)
+    dev.via_i915 = drv == 'i915'
+    if 'engines' in steps and drv == 'i915' and not dev.user_forcewake_path():
+        raise Refused('engines under i915 needs debugfs i915_forcewake_user '
+                      '(run as root; mount -t debugfs none /sys/kernel/debug)')
     if writes and drv not in ('vfio-pci', None):
         raise Refused(f'driver is {drv}; GPU writes need vfio-pci or no driver '
                       f'(run igpu-hookscript.sh 113 pre-start first)')
@@ -326,6 +429,18 @@ def fmt(f):
 
 def report(name, rec):
     print(f'[{name}]')
+    if 'engines' in rec:
+        print(f'  forcewake: {rec["held"]}' + (f' acked={rec["acked"]}' if 'acked' in rec else ''))
+        print('  engine  base     ' + ' '.join(f'{r[:8]:>8}' for r, _ in ENGINE_REGS) + '  answers')
+        for n, base, _ in ENGINES:
+            regs = rec['engines'][n]
+            print(f'  {n:6}  {base:#08x} ' + ' '.join(f'{regs[r]:08x}' for r, _ in ENGINE_REGS)
+                  + f'  {"yes" if answers(regs) else "no"}')
+        cfg = list(rec.get('gt_config', {}).items())
+        if cfg:
+            print('  GT config registers Apple programs (values as the current owner left them):')
+        for i in range(0, len(cfg), 6):
+            print('   ' + ' '.join(f'{k:>7}={v:08x}' for k, v in cfg[i:i + 6]))
     for key in ('before', 'raw', 'forcewake', 'after_reset'):  # before = forcewake read pre-FLR
         if key in rec:
             print(f'  {key:12} {fmt(rec[key])}')
@@ -376,6 +491,22 @@ def verdict(results, info=None):
             lines.append('PM reset REVIVES the fuses')
         else:
             lines.append('PM reset: no change (' + classify(a) + ')')
+    eng = results.get('engines')
+    if eng:
+        e = eng['engines']
+        live = [n for n, _, _ in ENGINES if answers(e[n])]
+        lines.append('engines answering: ' + (', '.join(live) or 'none'))
+        if not answers(e['rcs']):
+            lines.append('RCS does not answer either: forcewake not in effect, engines result void')
+        elif answers(e['pocs']):
+            lines.append(f'POCS answers like a live engine (MI_MODE {e["pocs"]["mi_mode"]:#x}, INSTDONE '
+                         f'{e["pocs"]["instdone"]:#x}): POSH hardware exists, so the POSH contexts '
+                         'Apple builds do not reference a missing engine')
+        else:
+            absent = [n for n in ('vcs1', 'vecs1') if not answers(e[n])]
+            lines.append('POCS reads like the absent engines' + (f' ({", ".join(absent)})' if absent else '')
+                         + ': NO POSH ENGINE on this GT; Apple builds every graphics context with POSH '
+                         '-> prime suspect for the CAT_ERROR (next: candidate with POSH off)')
     gd = results.get('gdrst')
     if gd:
         b, a = gd['forcewake'], gd['after_reset']
@@ -390,7 +521,7 @@ def verdict(results, info=None):
 
 def main(argv=None, dev=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('steps', nargs='+', choices=list(STEPS) + ['all'])
+    ap.add_argument('steps', nargs='+', choices=list(SEQUENCE) + ['all'])
     ap.add_argument('--bdf', default=BDF)
     ap.add_argument('--wake', action='store_true',
                     help='set power/control=on for the run (vfio-pci runtime-suspends idle devices to D3)')
@@ -400,7 +531,8 @@ def main(argv=None, dev=None):
                     help="forcewake requester bit (default 0 = i915's; 1 = what Apple's SafeForceWake uses)")
     ap.add_argument('--json', action='store_true')
     args = ap.parse_args(argv)
-    steps = list(ORDER) if 'all' in args.steps else [s for s in ORDER if s in args.steps]
+    wanted = set(args.steps) | (set(ORDER) if 'all' in args.steps else set())
+    steps = [s for s in SEQUENCE if s in wanted]
 
     dev = dev or SysfsDevice(args.bdf)
     dev.fw_bit = 1 << args.fw_bit

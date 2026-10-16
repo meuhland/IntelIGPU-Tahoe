@@ -360,6 +360,18 @@ class Decoder(unittest.TestCase):
         self.assertIn("GGTT 0x40000000-0x40001fff -> physical 0x14b700000 .. 0x14b701000", out)
         self.assertEqual(R.gtt_summary({}), [])
 
+    def test_pocs_ccs_and_rcu_mode(self):
+        st = dict(LIT, **AWAKE, pocsReset=0, pocsExecStatus=0x1, pocsMiMode=0x200, pocsHwsPga=0x40005000,
+                  pocsCtxCtl=0, ccsReset=0, ccsExecStatus=0x1, rcuMode=0)
+        hung = dict(st, pocsReset=0x4, pocsExecStatus=0x40003018, rcuMode=0x1)
+        out = "\n".join(R.summary(R.parse("\n".join([line(0, 0, **st), line(1, 250, **hung)]))[1]))
+        self.assertIn("POCS (POSH) RESET_CTL CATASTROPHIC, EXECLIST_STATUS 0x00000001 -> 0x40003018, "
+                      "MI_MODE idle, HWS_PGA 0x40005000, CONTEXT_CONTROL 0x00000000", out)
+        self.assertIn("-> POCS (POSH) is in CATASTROPHIC error", out)
+        self.assertIn("CCS (compute) RESET_CTL none, EXECLIST_STATUS 0x00000001 -> 0x00000001", out)
+        self.assertNotIn("CCS (compute) is in CATASTROPHIC", out)
+        self.assertIn("GEN12_RCU_MODE 0x00000001 (CCS mode ON", out)
+
     def test_posh_root_sq1_and_gtt_scan(self):
         lrca = 0x402d6000
         lri = (0x22 << 23) | (1 << 19) | (2 * 2 - 1)

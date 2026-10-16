@@ -218,6 +218,69 @@ check(d.reg.get(C.FW_GT[1]) == 0, 'fw-bit 1 released')
 # Asleep raw read carries the VM signature label.
 check('the VM signature' in run(['read'], Fake(asleep=True))[1], 'asleep tagged as VM signature')
 
+# engines: which command streamers answer (POCS question, 2026-10-16).
+class Engines(Fake):
+    """Live engines read MI_MODE idle 0x200 and a nonzero INSTDONE; others read 0."""
+
+    def __init__(self, live=('rcs', 'bcs', 'vcs0', 'vcs2', 'vecs0', 'pocs'), debugfs=True, **kw):
+        super().__init__(**kw)
+        self.live = {base for n, base, _ in C.ENGINES if n in live}
+        self.debugfs, self.held = debugfs, 0
+
+    def user_forcewake_path(self):
+        return '/sys/kernel/debug/dri/0/i915_forcewake_user' if self.debugfs else None
+
+    def hold_user_forcewake(self):
+        dev = self
+        dev.held += 1
+
+        class F:
+            def close(self):
+                dev.held -= 1
+        return F()
+
+    def read32(self, off):
+        for base in self.live:
+            if off == base + 0x9c:
+                return 0x200
+            if off == base + 0x6c:
+                return 0xfffffffe
+        return super().read32(off)
+
+
+# Under i915: read-only (no register writes), forcewake held via debugfs and released.
+d = Engines(driver='i915')
+rc, out, _ = run(['engines'], d)
+check(rc == 0 and not d.writes and d.held == 0, 'engines under i915: no writes, debugfs released')
+check('i915_forcewake_user' in out and 'POCS answers like a live engine' in out, 'engines: POCS live verdict')
+check('engines answering: rcs, pocs, bcs, vcs0, vcs2, vecs0' in out, 'engines: answering list')
+# POCS absent: the prime-suspect verdict names the absent baseline.
+d = Engines(driver='i915', live=('rcs', 'bcs', 'vcs0', 'vcs2', 'vecs0'))
+rc, out, _ = run(['engines'], d)
+check('NO POSH ENGINE' in out and '(vcs1, vecs1)' in out, 'engines: POCS absent verdict')
+# RCS silent: void.
+d = Engines(driver='i915', live=())
+rc, out, _ = run(['engines'], d)
+check('result void' in out and 'NO POSH' not in out, 'engines: void without RCS')
+# Under i915 without debugfs: refused before mapping.
+d = Engines(driver='i915', debugfs=False)
+rc, _, err = run(['engines'], d)
+check(rc == 2 and 'i915_forcewake_user' in err and not d.mapped, 'engines refused without debugfs')
+# Other i915 steps stay refused; 'all' does not include engines.
+d = Engines(driver='i915')
+rc, _, err = run(['engines', 'forcewake'], d)
+check(rc == 2 and 'driver is i915' in err, 'engines + write step refused under i915')
+d = Engines()
+rc, out, _ = run(['all', '--json'], d)
+check('engines' not in json.loads(out)['steps'], "'all' excludes engines")
+# Under vfio-pci: register forcewake incl. media domains, every domain released.
+d = Engines()
+rc, out, _ = run(['engines'], d)
+reqs = [C.FW_RENDER[0], C.FW_GT[0]] + [r for r, _ in C.FW_MEDIA.values()]
+check(rc == 0 and all(d.writes.count(r) == 2 for r in reqs), 'engines vfio: each domain acquired + released')
+check('POCS answers' in out, 'engines vfio: verdict')
+check('0x14800=' in out and 'GT config registers' in out, 'engines: GT config dump printed')
+
 if failures:
     sys.exit(1)
 print('PASS: coldgt_check (ownership/decode/D3 guards, FLR/GDRST verdicts, forcewake release)')
