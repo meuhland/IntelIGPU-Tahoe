@@ -1347,11 +1347,12 @@ parts complete. Guest `date` right before `igpu-start`: **10:12:22**.
   `0x80041000` for 1 slice. Ring page (PTE `0x1_3834208b`): `MI_NOOP` x3,
   three `PIPE_CONTROL`, `MI_0x07`, `MI_NOOP` x3, two `PIPE_CONTROL`,
   `MI_0x07`, then `MI_NOOP`. GGTT window `0x40000000`-`0x400fffff`: 256 of 256
-  entries valid, none at physical 0 among the 24 runs pasted (232 more runs in
-  the host decode).
+  entries valid, none at physical 0 among the 24 runs recovered; the other
+  232 runs are lost.
 
-Evidence: `~/work/igpu-notes/window-20261016-decode-a76e.txt` (guest);
-capture and full decode on the Proxmox host.
+The host capture file came out empty; the decode above was salvaged from the
+terminal, so only what is in the guest notes survives. Evidence:
+`~/work/igpu-notes/window-20261016-decode-a76e.txt` (guest).
 
 ## Prior art
 

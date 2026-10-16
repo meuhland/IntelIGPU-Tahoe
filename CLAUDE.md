@@ -268,7 +268,9 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   1 GiB fully valid. Host DMAR write-to-0 at 10:12:50, 28 s after
   `igpu-start` (10:12:22); MSI count 0. Facts
   only: port doc "Context dump window";
-  `~/work/igpu-notes/window-20261016-decode-a76e.txt`.
+  `~/work/igpu-notes/window-20261016-decode-a76e.txt`. The host capture
+  file came out empty; the decode was salvaged from the terminal (232 of
+  256 GGTT runs lost).
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On
