@@ -154,8 +154,10 @@ Next run of this section, additions:
   …): … root entries present" and any "-> present root entries pointing at
   physical 0", "GGTT scan …" with "valid entries at physical 0", and the
   page 3/5 restore lists.
-- **Keep the host capture file.** On 2026-10-16 the file came out empty and the
-  decode was salvaged from the terminal. Before `igpu-start`, check that it
+- **Keep the host capture file.** On 2026-10-16 the file came out empty (a plain
+  `socat`, which exits when the VM's socket is absent or goes away) and the
+  decode was salvaged from the terminal. Use `bash /root/serial-capture.sh`
+  (VM-PREP-RPLS.md 9b), started before `qm start`. Before `igpu-start`, check that it
   grows: `ls -l /root/vm113-serial-*.log | tail -1` twice, a few seconds
   apart, while the guest is booting.
 - **Note the wall-clock time of `igpu-start`** (`date` right before it). The

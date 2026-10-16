@@ -142,7 +142,16 @@ The socket only exists while QEMU runs (Proxmox creates it at VM start and
 removes it at stop), so a plain `socat` started before `qm start` fails at
 once and leaves an empty log, and one started earlier exits at the next VM
 stop. Use this loop instead; start it any time, it waits for the socket and
-reconnects across VM restarts (stop it with Ctrl-C):
+reconnects across VM restarts (stop it with Ctrl-C). It is in the repo as
+`proxmox/serial-capture.sh` (a plain socat left the 2026-10-16 log empty):
+
+```sh
+curl -fsSL -o /root/serial-capture.sh https://raw.githubusercontent.com/meuhland/IntelIGPU-Tahoe/uhd770-port/proxmox/serial-capture.sh
+bash /root/serial-capture.sh
+```
+
+It prints the log path, `connected` when the VM's socket appears, and the
+byte count at every disconnect. The same loop by hand:
 
 ```sh
 log=/root/vm113-serial-$(date +%Y%m%d-%H%M%S).log; sock=/var/run/qemu-server/113.serial0
