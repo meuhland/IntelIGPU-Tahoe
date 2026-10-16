@@ -258,6 +258,16 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   (reason `0x02`) at 15:48:58, 30 s after `igpu-start` (15:48:28); MSI
   `Enable+`, count 0. Facts only, not interpreted: port doc "55-register
   watch window"; `~/work/igpu-notes/window-20261015-decode-d23b.txt`.
+- Context dump window (2026-10-16 morning, probe `A76EC7C7`, candidate
+  `3a7cfb99`): same NEVER EXECUTED verdict, 12 reset requests. Submitted
+  context LRCA GGTT `0x402b7000`: status page all zero; restore list
+  `CONTEXT_CONTROL` `0xffff0011`, `RING_START` `0x402cb000`, `RING_TAIL`
+  `0x58`, `PDP0` `0x1_34f94000`, `R_PWR_CLK_STATE` `0x80000000` (decoder:
+  i915 would program `0x80041000`; list differs from i915's Gen12 RCS layout
+  at entry 11); ring holds `PIPE_CONTROL`s and `MI_NOOP`s. GGTT window from
+  1 GiB fully valid. Host DMAR write-to-0 at 10:12:50, MSI count 0. Facts
+  only: port doc "Context dump window";
+  `~/work/igpu-notes/window-20261016-decode-a76e.txt`.
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
   Timeout`): `display-bringup/edid_read.hpp` + test recover the real monitor
   EDID; the stage-3 execute build reads and publishes it (DDC pin 2). On

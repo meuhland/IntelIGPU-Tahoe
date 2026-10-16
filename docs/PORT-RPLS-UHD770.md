@@ -1315,6 +1315,43 @@ checks `R_PWR_CLK_STATE`.
 in a VM with this exact passthrough, execlists (`enable_guc=0`) and GuC, to
 tell "Apple's submission" from "this VM setup".
 
+#### Context dump window (2026-10-16 morning, probe `A76EC7C7`)
+
+Recorded facts; interpretation left to the offline session. Hold+watch probe
+`A76EC7C7` (52-register watch plus the one-shot dump at first submission),
+candidate `3a7cfb99`, gate `2DF3A522`; VM 113 8 cores, 1 socket. Guest probe
+read: held fuses 1/3/0/`0xe00fa`, both acks, `ReimsGTWatch: True`; serial
+parts complete. The guest `date` before `igpu-start` was not recorded.
+
+- Host DMAR: one write-to-0 fault (reason `0x02`) at **10:12:50**; none in
+  the baseline (10:10:49; VM start 10:06:08, guest reboot 10:08:27). During
+  the hang MSI `Enable+` (`fee00018`), `vfio-msi[0]` count 0 across 5 s.
+- Decoder (`--msi flat`): 62 samples, 40697 ms to 251036 ms. Same sequence as
+  the 2026-10-15 windows: at 91459 ms the four PTEs go from flags `0x001` to
+  `0x08b`; at 91715 ms CATASTROPHIC, `ERROR_GEN6` `0x7b`, `EXECLIST_STATUS`
+  `0x40003018`, `rcsHwsPga` `0x40004000` (PTE `0x1_359ff08b`). Submit queue:
+  `SQ0` `0x20_402b7319`, `SQ1` `0x40_402d7319`. `CCID` `0x80`, `GFX_MODE` 0,
+  `RC_CONTROL` 0, `RC_STATE` `0x00040000`, `PG_ENABLE` `0x4`, `RC6_LOCATION`
+  `0x1`, `RC6_CTX_BASE` `0x807f7001`. Twelve reset requests, ~8.3 s apart
+  (124.6 s to 215.9 s), READY_TO_RESET never seen. Verdict: NEVER EXECUTED.
+- Context dump, LRCA GGTT `0x402b7000` (descriptor: valid, privilege, legacy
+  64b, priority 1, sw ctx id 1, class 0): page 0 PTE `0x1_3575908b`, 96 dwords
+  all zero. Page 1 PTE `0x1_3575808b`, restore list: `CONTEXT_CONTROL`
+  `0xffff0011`, `RING_HEAD` 0, `RING_TAIL` `0x58`, `RING_START` `0x402cb000`,
+  `RING_CTL` `0x7001`, BB/indirect-ctx/timestamp 0, `PDP1-3` 0, `PDP0`
+  `0x1_34f94000`, `POSH_LRCA` `0x402b3000`, `R_PWR_CLK_STATE` `0x80000000`,
+  `0x4204`=0, `0x4200`=`0x40008000`. Decoder flags: the list differs from
+  i915's Gen12 RCS layout at entry 11 (`0x3a8, 0x28c, 0x288, 0x284` vs i915
+  `0x180, 0x2b4, 0x3a8, 0x28c`); `R_PWR_CLK_STATE` `0x80000000` vs i915
+  `0x80041000` for 1 slice. Ring page (PTE `0x1_3834208b`): `MI_NOOP` x3,
+  three `PIPE_CONTROL`, `MI_0x07`, `MI_NOOP` x3, two `PIPE_CONTROL`,
+  `MI_0x07`, then `MI_NOOP`. GGTT window `0x40000000`-`0x400fffff`: 256 of 256
+  entries valid, none at physical 0 among the 24 runs pasted (232 more runs in
+  the host decode).
+
+Evidence: `~/work/igpu-notes/window-20261016-decode-a76e.txt` (guest);
+capture and full decode on the Proxmox host.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.
