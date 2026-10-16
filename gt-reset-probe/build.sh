@@ -12,6 +12,12 @@ flags=()
 mode="read-only"
 if [ "${REIMS_GT_RESET_EXECUTE:-}" = 1 ]; then flags+=(-DREIMS_GT_RESET_EXECUTE=1); mode="EXECUTE (issues GDRST)"; fi
 if [ "${REIMS_GT_FORCEWAKE_HOLD:-}" = 1 ]; then flags+=(-DREIMS_GT_FORCEWAKE_HOLD=1); mode="HOLD (keeps render+GT forcewake until unload)"; fi
+# Opt-in: with HOLD, scrub stale low-GGTT entries (host i915 leftovers that
+# point outside guest RAM) to a scratch page before igpu-start.
+if [ "${REIMS_GT_GGTT_SCRUB:-}" = 1 ]; then
+ if [ "${REIMS_GT_FORCEWAKE_HOLD:-}" != 1 ]; then echo "REIMS_GT_GGTT_SCRUB needs REIMS_GT_FORCEWAKE_HOLD=1" >&2; exit 64; fi
+ flags+=(-DREIMS_GT_GGTT_SCRUB=1); mode="$mode + GGTT SCRUB"
+fi
 sdk=$(xcrun --sdk macosx --show-sdk-path)
 headers="$sdk/System/Library/Frameworks/Kernel.framework/Headers"
 out=build/ReimsGTResetProbe.kext/Contents

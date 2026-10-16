@@ -14,6 +14,10 @@
 #include "gt_watch.hpp"
 #include "gt_ctxdump.hpp"
 #include <IOKit/IOMemoryDescriptor.h>
+#include <IOKit/IOBufferMemoryDescriptor.h>
+#if defined(REIMS_GT_GGTT_SCRUB)
+#include "gt_ggtt_scrub.hpp"
+#endif
 #endif
 
 // Phase-6 GT-reset probe (gt_reset.hpp). Default build is read-only: it reads
@@ -51,6 +55,14 @@ static constexpr bool kHold=true;
 #endif
 #else
 static constexpr bool kHold=false;
+#endif
+#if defined(REIMS_GT_GGTT_SCRUB)
+#if !defined(REIMS_GT_FORCEWAKE_HOLD)
+#error "REIMS_GT_GGTT_SCRUB needs REIMS_GT_FORCEWAKE_HOLD (it scrubs while forcewake is held, before igpu-start)"
+#endif
+static constexpr bool kScrub=true;
+#else
+static constexpr bool kScrub=false;
 #endif
 
 struct BarIO {
@@ -225,6 +237,35 @@ class ReimsGTResetProbe:public IOService {
   return true;
  }
 #endif
+#if defined(REIMS_GT_GGTT_SCRUB)
+ IOBufferMemoryDescriptor*scratch=nullptr;  // redirect target: stays resident while loaded
+ // Redirect every low-GGTT entry that points outside guest RAM (or at
+ // physical 0) to one scratch page, before igpu-start (gt_ggtt_scrub.hpp).
+ void scrubGgtt(IOMemoryMap*map){
+  scratch=IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
+   kIODirectionInOut|kIOMemoryPhysicallyContiguous,4096,4096);
+  if(!scratch||scratch->prepare()!=kIOReturnSuccess){
+   OSSafeReleaseNULL(scratch);setProperty("ReimsGTGgttScrub",false);return;
+  }
+  IOByteCount seglen=0;
+  // Raw guest-physical page (no IOMapper): the GPU's GGTT holds guest-physical
+  // addresses in this VM, as the dumped PTEs and the host DMAR faults show.
+  const addr64_t phys=scratch->getPhysicalSegment(0,&seglen,kIOMemoryMapperNone);
+  if(!phys||seglen<4096){
+   scratch->complete();OSSafeReleaseNULL(scratch);setProperty("ReimsGTGgttScrub",false);return;
+  }
+  memset(scratch->getBytesNoCopy(),0,4096);
+  BarIO io{map->getVirtualAddress()};
+  const auto c=ReimsGTScrub::scrub(io,map->getLength(),uint64_t(phys),ReimsGTScrub::guestRamTop16G);
+  setProperty("ReimsGTGgttScrub",true);
+  number("GgttScrubScratchPhys",uint64_t(phys),64);
+  number("GgttScrubScanned",c.scanned);
+  number("GgttScrubPresent",c.present);
+  number("GgttScrubRedirected",c.redirected);
+  IOLog("ReimsGT ggtt scrub: %u of %u present, %u redirected to scratch 0x%llx\n",
+        c.present,c.scanned,c.redirected,(unsigned long long)phys);
+ }
+#endif
  void number(const char*k,uint64_t v,unsigned bits=32){
   if(auto*n=OSNumber::withNumber(v,bits)){setProperty(k,n);n->release();}
  }
@@ -288,6 +329,9 @@ class ReimsGTResetProbe:public IOService {
    setProperty("GTForcewakeAcked",h.gtAcked);
    setProperty("ForcewakeHeld",true);
    setProperty("HeldFusesPopulated",ReimsGTReset::populated(h.held));
+#if defined(REIMS_GT_GGTT_SCRUB)
+   if(kScrub)scrubGgtt(map);
+#endif
 #if defined(REIMS_GT_FORCEWAKE_HOLD)
    armWatch(map);
 #endif
@@ -314,6 +358,7 @@ public:
   if(!IOService::start(provider))return false;
   setProperty("ReimsGTResetExecuteBuild",kExecute);
   setProperty("ReimsGTForcewakeHoldBuild",kHold);
+  setProperty("ReimsGTGgttScrubBuild",kScrub);
   setProperty("ReimsGTResetPath",ReimsTarget::kPCIPath);
   setProperty("ReimsGTResetComplete",probe());
   registerService();
@@ -328,6 +373,9 @@ public:
    ReimsGTReset::releaseHold(io);
    OSSafeReleaseNULL(heldMap);
   }
+#if defined(REIMS_GT_GGTT_SCRUB)
+  if(scratch){scratch->complete();OSSafeReleaseNULL(scratch);}
+#endif
   IOService::stop(provider);
  }
 };

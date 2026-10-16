@@ -1494,6 +1494,53 @@ Read from the `sle` binary (`IGHardwareContext::initWithOptions` `0x7b9d4`,
   `initModeRegisters` writes `0x00080008` instead of `0x00080000`, so it
   sets `DISABLE_LEGACY_MODE` as i915 does. File `0x28e48`, the immediate of
   `movl $imm,(%rax,%rsi)`.
+#### The environment, not the topology (offline, 2026-10-16 night)
+
+Stepping Apple's start path with the engine-presence result in hand narrows
+the cause to the VM, not Apple's code or this GT:
+
+- **The injected topology never reaches the hardware on the start path.**
+  `getGPUInfo` derives NumSubSlices 4, EU 32, L3BankCount 4 (ADL-P: 12, 96,
+  8), but `setSliceConfig` (the only consumer that writes the GPU) runs only
+  for more than one slice, so neither machine reaches it; nothing reads
+  L3BankCount on this path; EU/subslice counts feed only capability
+  reporting, telemetry and the unused GuC loader. So up to the first
+  submission Apple programs `a780` exactly as it programs the working ADL-P
+  (same workaround table for rev `04`, same POSH/CCS settings, same GT
+  config writes).
+- **The one Apple-only symptom is the host DMAR write-to-0 at submission**,
+  reason `0x02`, never seen under i915 in this VM nor in the Linux control.
+  So the difference is the environment: ADL-P runs bare metal (very likely
+  VT-d off for macOS), the VM runs behind the host IOMMU.
+- **The likely mechanism: stale low-GGTT entries.** Apple's `initGlobalGTT`
+  adopts the host i915 GGTT instead of resetting unused entries to a scratch
+  page the way i915 does (i915 never leaves a GGTT entry pointing at memory
+  it does not own). Entry 0 read `0x4ff44b000` (~20 GiB, outside this 16 GiB
+  guest). A GPU access that resolves through such an entry leaves the guest's
+  address space, which the host IOMMU cannot attribute to the VM — the
+  `0x02` fault. On bare metal with no IOMMU the same access lands silently in
+  RAM, which is why ADL-P survives it.
+- Open: the `0x02` fault is attribution failure, not a page-table fault, so
+  the exact access is not yet pinned to the GGTT. The window's p4 (PPGTT
+  root) and 8 MiB GGTT-scan dumps test the alternatives.
+
+**Fix 1, built (opt-in `REIMS_GT_GGTT_SCRUB=1` on the hold probe,
+`gt_ggtt_scrub.hpp`):** before `igpu-start`, while forcewake is held, every
+present GGTT entry below Apple's 1 GiB window that points outside guest RAM
+(or at physical 0) is redirected to one scratch page the probe owns and
+zeroes, so a stray access lands harmlessly instead of faulting. Apple
+reprograms what it needs from 1 GiB up, so nothing it uses is touched. It
+reads/writes GGTT PTEs only (no GT register), publishes
+`GgttScrubScanned/Present/Redirected`, and logs one `ReimsGT ggtt scrub`
+line. `guestRamTop16G` (`0x4_8000_0000`) encodes VM 113's 16 GiB; change it
+with the VM's memory size. The default hold probe is unchanged, so one window
+compares with and against it.
+
+Fix 2 (if a p4 or GGTT-scan dump shows a *present* entry at physical 0 that
+Apple itself wrote, i.e. an unpopulated allocation rather than a host
+leftover) targets that allocation in the candidate builder, the same way as
+the other opt-in patches. It needs the dump first, so it is not written yet.
+
 - Sampler: 8 more columns (66, seven parts): POCS `RESET_CTL`/
   `EXECLIST_STATUS`/`MI_MODE`/`HWS_PGA`/`CONTEXT_CONTROL`, CCS
   `RESET_CTL`/`EXECLIST_STATUS`, `GEN12_RCU_MODE`. The decoder flags a POCS

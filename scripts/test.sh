@@ -54,3 +54,6 @@ xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
 xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
  gt-reset-probe/test_gt_ctxdump.cpp -o "$timing_test/test_gt_ctxdump"
 "$timing_test/test_gt_ctxdump"
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
+ gt-reset-probe/test_gt_ggtt_scrub.cpp -o "$timing_test/test_gt_ggtt_scrub"
+"$timing_test/test_gt_ggtt_scrub"

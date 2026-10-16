@@ -61,6 +61,22 @@ the rebuilt hold probe (66 columns, context/POSH/root/SQ1 dumps, GGTT scan).
 Variants in order of preference for the window after: `REIMS_RPLS_GFX_MODE_I915=1`
 (i915's mode bit), then `REIMS_RPLS_NO_POSH=1`, then `REIMS_RPLS_NO_CCS=1`.
 
+- **Fix 1: GGTT scrub (opt-in).** Build a second hold probe with
+  `REIMS_GT_GGTT_SCRUB=1` as well. Before `igpu-start` it redirects stale
+  low-GGTT entries (host i915 leftovers pointing outside guest RAM, the
+  `0x02` DMAR fault's likely source) to a scratch page (PORT doc, "The
+  environment, not the topology"). It logs `ReimsGT ggtt scrub: P of N
+  present, R redirected` and publishes `GgttScrub*`. Run the window once with
+  the plain hold probe and once with the scrub probe:
+  - fault gone and RCS makes progress with scrub, not without -> stale GGTT
+    confirmed; make the scrub a standing part of the start path.
+  - fault still there with scrub -> the bad access is not a low-GGTT entry;
+    read the p4 (PPGTT root) and GGTT-scan dumps for a present entry at
+    physical 0 (then fix 2).
+  ```sh
+  REIMS_TARGET=rpls REIMS_GT_FORCEWAKE_HOLD=1 REIMS_GT_GGTT_SCRUB=1 bash gt-reset-probe/build.sh
+  ```
+
 Paste the table and the `=>` lines back for the offline session, along with
 the JSON (it has the `GT_CONFIG` values i915 left).
 
