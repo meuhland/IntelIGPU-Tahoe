@@ -160,6 +160,11 @@ SMC/SMBIOS/CPU/USB arguments dropped).
   `0x22d2` → `0x38d7` (GPU-written completions), with the CSB write index
   mirrored at HWSP `0xbc` (8 → `0xa`): the engine executed and wrote its
   completions to memory.
+- **Host IOMMU:** no `DMAR` fault from 09:48:45 (VM start, two vfio resets)
+  to 10:04:25; one more reset at 09:49:02 (the guest reboot for the GRUB
+  edit). Under i915 the GPU did plenty of DMA without a single fault, whereas
+  every macOS submission produced the write to `0x0`: that write is caused by
+  what Apple's submission makes the GPU do.
 
 **Conclusion:** execlist submission on RCS works on this IGD through this
 exact passthrough (QEMU vfio, OVMF without GOP, no VBT/OpRegion). The macOS
