@@ -360,6 +360,37 @@ class Decoder(unittest.TestCase):
         self.assertIn("GGTT 0x40000000-0x40001fff -> physical 0x14b700000 .. 0x14b701000", out)
         self.assertEqual(R.gtt_summary({}), [])
 
+    def test_posh_root_sq1_and_gtt_scan(self):
+        lrca = 0x402d6000
+        lri = (0x22 << 23) | (1 << 19) | (2 * 2 - 1)
+        posh = [0, lri, 0x2244, 0xffff0009, 0x2034, 0]
+        lines = [f"ReimsGT ctx {lrca:08x} p3 pte 000000014b75908b",
+                 f"ReimsGT ctx {lrca:08x} p3 @0 " + " ".join(f"{w:08x}" for w in posh + [0, 0]),
+                 f"ReimsGT ctx {lrca:08x} p4 pte 0000000134f94000",
+                 f"ReimsGT ctx {lrca:08x} p4 @0 " + " ".join(f"{w & 0xffffffff:08x}" for w in
+                                                         [0x34f95003, 0x1, 0, 0, 0x7, 0, 0, 0]),  # [2] at 0
+                 f"ReimsGT ctx {lrca:08x} p5 pte 0000000000000000",
+                 "ReimsGT ctx 402d8000 p4 PPGTT root is 0",
+                 "ReimsGT gttbad 402b3000 000000000000008b",
+                 "ReimsGT gttbad 40600000 0000000000000000",
+                 "ReimsGT gttscan 40000000 2048 valid 1500 invalid 547 zero 1"]
+        text = "\n".join(lines)
+        out = "\n".join(R.context_summary(R.context_dumps(text)))
+        self.assertIn("page 3 (POSH context register state (POSH_LRCA)): PTE 0x000000014b75908b (valid", out)
+        self.assertIn("LRI 0x02244 CONTEXT_CONTROL    = 0xffff0009", out)
+        self.assertNotIn("Gen12 RCS layout", out)  # POSH has its own layout
+        self.assertIn("page 4 (PPGTT root (PML4)): physical 0x134f94000 (PDP0 from the restore list)", out)
+        self.assertIn("2 of 4 root entries present, first [0] 0x134f95000, [2] 0x0", out)
+        self.assertIn("present root entries pointing at physical 0: [2]", out)
+        self.assertIn("page 5 (second submitted context (SQ1) register state): PTE 0x0000000000000000 (NOT valid",
+                      out)
+        self.assertIn("page 4: PDP0 in the restore list is 0", out)
+        scan = "\n".join(R.gtt_scan_summary(text))
+        self.assertIn("GGTT scan 0x40000000-0x407fffff: 1500 valid, 547 not valid, 1 valid at physical 0", scan)
+        self.assertIn("valid entries at physical 0: 0x402b3000", scan)
+        self.assertIn("first entries not valid: 0x40600000", scan)
+        self.assertEqual(R.gtt_scan_summary(""), [])
+
     def test_empty_log(self):
         self.assertIn("No ReimsGT samples", R.summary([])[0])
 

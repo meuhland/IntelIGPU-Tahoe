@@ -53,6 +53,19 @@ int main(){
   CHECK(!strcmp(l2,"ReimsGT gtt 40004000 000000014b75708b 0000000000000003\n"));
  }
 
+ // Anomaly scan: invalid and physical-0 entries are reported, others counted.
+ {ScanSummary s;
+  CHECK(!scanAnomaly(0x135759083ull,s));       // valid, guest RAM
+  CHECK(scanAnomaly(0x0ull,s));                // not valid
+  CHECK(scanAnomaly(0x8bull,s));               // valid, physical 0
+  CHECK(s.valid==2&&s.invalid==1&&s.zero==1);
+  char l3[ReimsGTSampler::lineBuffer];
+  formatScanEntry(l3,sizeof(l3),0x402b3000,0x8bull);
+  CHECK(!strcmp(l3,"ReimsGT gttbad 402b3000 000000000000008b\n"));
+  formatScanSummary(l3,sizeof(l3),0x40000000,2048,s);
+  CHECK(!strcmp(l3,"ReimsGT gttscan 40000000 2048 valid 2 invalid 1 zero 1\n"));
+  CHECK(lriPoshLrca==0x1b0&&lriPdp0Ldw==0x270&&lriPdp0Udw==0x274);}
+
  if(failures)return 1;
  puts("PASS: context dump (LRCA/PTE math, once per LRCA, line format under 255)");
  return 0;

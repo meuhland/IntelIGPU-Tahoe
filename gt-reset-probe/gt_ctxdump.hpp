@@ -19,11 +19,31 @@ constexpr unsigned pages=2;          // PPHWSP and register state
 constexpr unsigned dwords=96;        // per page: covers R_PWR_CLK_STATE (Gen12 RCS ~dword 67)
 constexpr unsigned perLine=8;        // 8 x 9 + prefix stays far under 255
 constexpr unsigned ringPage=2;       // printed as "p2": the ring buffer (from RING_START)
+// 2026-10-16 dump: Apple's own context and ring were sane and mapped into
+// guest RAM, so the next suspects are what that context pulls in. Labels:
+constexpr unsigned poshPage=3;       // "p3": POSH context page 1 (POSH_LRCA, LRI 0x1b0)
+constexpr unsigned rootPage=4;       // "p4": PPGTT root (PDP0, a physical page, not GGTT)
+constexpr unsigned sq1Page=5;        // "p5": second submitted context (SQ1) page 1
+constexpr uint32_t lriPoshLrca=0x1b0,lriPdp0Ldw=0x270,lriPdp0Udw=0x274;
 // Apple's GGTT allocations start at 1 GiB (status page at 0x40004000 on
-// 2026-10-16): dump that window's PTEs once, at the first submission.
+// 2026-10-16). The first build listed 1 MiB of PTEs (formatGtt, still read
+// by the decoder); the probe now runs the anomaly scan below instead.
 constexpr uint32_t gttWindow=0x40000000;
 constexpr unsigned gttPages=256;
 constexpr unsigned gttPerLine=6;     // 6 x 17 + prefix stays far under 255
+// Anomaly scan: Apple's objects reached 0x402d7000 by the first submission,
+// past the 1 MiB window. Scan 8 MiB and print only entries that are not
+// valid or valid with physical 0, capped, plus one summary line.
+constexpr unsigned scanPages=2048;
+constexpr unsigned scanMaxLines=48;
+struct ScanSummary {unsigned valid=0,invalid=0,zero=0,printed=0;};
+// true when this entry should be printed (invalid or physical 0)
+inline bool scanAnomaly(uint64_t pte,ScanSummary&s){
+ if(!(pte&1)){++s.invalid;return true;}
+ ++s.valid;
+ if(!(pte&0x7ffffff000ull)){++s.zero;return true;}
+ return false;
+}
 
 // Value of the register with engine-relative offset rel (or its RCS absolute
 // 0x2000+rel) in the MI_LOAD_REGISTER_IMM blocks of a context state page.
@@ -83,6 +103,29 @@ inline size_t formatWords(char*out,size_t n,uint32_t lrca,unsigned page,unsigned
  str("ReimsGT ctx ");hx(lrca,8);str(" p");put(char('0'+page));str(" @");dec(first);
  for(unsigned i=0;i<count;++i){put(' ');hx(v[i],8);}
  put('\n');
+ if(n)out[len<n?len:n-1]='\0';
+ return len;
+}
+// "ReimsGT gttbad <gtt> <pte>" and "ReimsGT gttscan <start> <pages> valid <v> invalid <i> zero <z>".
+inline size_t formatScanEntry(char*out,size_t n,uint32_t gtt,uint64_t pte){
+ static const char hex[]="0123456789abcdef";
+ size_t len=0;
+ auto put=[&](char c){if(len+1<n)out[len]=c;++len;};
+ auto str=[&](const char*p){while(*p)put(*p++);};
+ auto hx=[&](uint64_t x,int digits){for(int b=(digits-1)*4;b>=0;b-=4)put(hex[(x>>b)&0xf]);};
+ str("ReimsGT gttbad ");hx(gtt,8);put(' ');hx(pte,16);put('\n');
+ if(n)out[len<n?len:n-1]='\0';
+ return len;
+}
+inline size_t formatScanSummary(char*out,size_t n,uint32_t start,unsigned pages,const ScanSummary&s){
+ static const char hex[]="0123456789abcdef";
+ size_t len=0;
+ auto put=[&](char c){if(len+1<n)out[len]=c;++len;};
+ auto str=[&](const char*p){while(*p)put(*p++);};
+ auto hx=[&](uint64_t x,int digits){for(int b=(digits-1)*4;b>=0;b-=4)put(hex[(x>>b)&0xf]);};
+ auto dec=[&](unsigned x){char d[10];unsigned k=0;do{d[k++]=char('0'+x%10);x/=10;}while(x);while(k)put(d[--k]);};
+ str("ReimsGT gttscan ");hx(start,8);put(' ');dec(pages);str(" valid ");dec(s.valid);
+ str(" invalid ");dec(s.invalid);str(" zero ");dec(s.zero);put('\n');
  if(n)out[len<n?len:n-1]='\0';
  return len;
 }

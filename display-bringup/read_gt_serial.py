@@ -54,6 +54,8 @@ STALL = re.compile(r"ReimsGT stall seq (\d+) ms (\d+) (?:reading (\w+) 0x([0-9a-
 # gt-reset-probe hold build (gt_ctxdump.hpp): the submitted context's pages.
 CTX_PTE = re.compile(r"ReimsGT ctx ([0-9a-f]{8}) p(\d) pte ([0-9a-f]{16})")
 CTX_WORDS = re.compile(r"ReimsGT ctx ([0-9a-f]{8}) p(\d) @(\d+)((?: [0-9a-f]{8})+)")
+# probe.cpp prints these instead of a page: "PPGTT root is 0", "map failed", "pte outside BAR"
+CTX_NOTE = re.compile(r"ReimsGT ctx ([0-9a-f]{8}) p(\d) (PPGTT root is 0|map failed|pte outside BAR)")
 # MI_LOAD_REGISTER_IMM (i915 intel_gpu_commands.h): opcode 0x22 in bits 31:23,
 # length 2n-1 in bits 7:0; MI_LRI_LRM_CS_MMIO (bit 19) makes offsets engine-relative.
 MI_LRI_OPCODE, MI_LRI_CS_MMIO = 0x22, 1 << 19
@@ -491,6 +493,9 @@ def context_dumps(text):
         page = out.setdefault(int(m.group(1), 16), {}).setdefault(int(m.group(2)), {"pte": None, "words": {}})
         for i, v in enumerate(m.group(4).split()):
             page["words"][int(m.group(3)) + i] = int(v, 16)
+    for m in CTX_NOTE.finditer(text):
+        page = out.setdefault(int(m.group(1), 16), {}).setdefault(int(m.group(2)), {"pte": None, "words": {}})
+        page["note"] = m.group(3)
     return out
 
 
@@ -554,6 +559,26 @@ def gtt_window(text):
     return out
 
 
+GTT_BAD = re.compile(r"ReimsGT gttbad ([0-9a-f]{8}) ([0-9a-f]{16})")
+GTT_SCAN = re.compile(r"ReimsGT gttscan ([0-9a-f]{8}) (\d+) valid (\d+) invalid (\d+) zero (\d+)")
+
+
+def gtt_scan_summary(text):
+    out = []
+    for m in GTT_SCAN.finditer(text):
+        start, pages = int(m.group(1), 16), int(m.group(2))
+        out.append(f"GGTT scan 0x{start:08x}-0x{start + pages * 4096 - 1:08x}: {m.group(3)} valid, "
+                   f"{m.group(4)} not valid, {m.group(5)} valid at physical 0")
+    bad = [(int(a, 16), int(p, 16)) for a, p in GTT_BAD.findall(text)]
+    zero = [a for a, p in bad if p & 1]
+    if zero:
+        out.append("  valid entries at physical 0: " + ", ".join(f"0x{a:08x}" for a in zero[:16]))
+    invalid = [a for a, p in bad if not p & 1]
+    if invalid:
+        out.append("  first entries not valid: " + ", ".join(f"0x{a:08x}" for a in invalid[:16]))
+    return out
+
+
 def gtt_summary(window):
     if not window:
         return []
@@ -588,19 +613,40 @@ def context_summary(dumps):
             p = pages[pn]
             words = [p["words"].get(i, 0) for i in range(max(p["words"], default=-1) + 1)]
             pte = p["pte"]
-            where = (f"PTE 0x{pte:016x} ({'valid' if pte & 1 else 'NOT valid'}, physical 0x{pte & 0x7FFFFFF000:x})"
-                     if pte is not None else "PTE not logged")
-            kind = {0: "per-process status page", 1: "register state", 2: "ring buffer (from RING_START)"}.get(pn, f"page {pn}")
+            if p.get("note") == "PPGTT root is 0":
+                out.append(f"  page {pn}: PDP0 in the restore list is 0: page walks start at physical 0.")
+                continue
+            if p.get("note"):
+                out.append(f"  page {pn}: {p['note']}")
+                continue
+            if pn == 4:  # PPGTT root: a physical page, the header carries its address
+                where = f"physical 0x{pte:x} (PDP0 from the restore list)" if pte is not None else "not logged"
+            else:
+                where = (f"PTE 0x{pte:016x} ({'valid' if pte & 1 else 'NOT valid'}, physical 0x{pte & 0x7FFFFFF000:x})"
+                         if pte is not None else "PTE not logged")
+            kind = {0: "per-process status page", 1: "register state", 2: "ring buffer (from RING_START)",
+                    3: "POSH context register state (POSH_LRCA)", 4: "PPGTT root (PML4)",
+                    5: "second submitted context (SQ1) register state"}.get(pn, f"page {pn}")
             out.append(f"  page {pn} ({kind}): {where}; {len(words)} dwords"
                        + (", ALL ZERO" if words and not any(words) else ""))
-            if pte is not None and pte & 1 and not pte & 0x7FFFFFF000:
+            if pn != 4 and pte is not None and pte & 1 and not pte & 0x7FFFFFF000:
                 out.append("    -> this page is guest-physical 0: the engine reads/writes the context at address 0.")
             if pn == 2 and words:
                 cmds = ring_commands(words)
                 out.append("    commands: " + ", ".join(f"@{i} {n}" for i, n in cmds[:24])
                            + (" ..." if len(cmds) > 24 else ""))
                 continue
-            if pn != 1 or not words:
+            if pn == 4 and words:
+                entries = [(words[i + 1] << 32 | words[i]) for i in range(0, len(words) - 1, 2)]
+                present = [(i, e) for i, e in enumerate(entries) if e & 1]
+                at_zero = [i for i, e in present if not e & 0x7FFFFFF000]
+                out.append(f"    {len(present)} of {len(entries)} root entries present"
+                           + (", first " + ", ".join(f"[{i}] 0x{e & 0x7FFFFFF000:x}" for i, e in present[:4])
+                              if present else ": EMPTY root, every PPGTT address is unmapped"))
+                if at_zero:
+                    out.append(f"    -> present root entries pointing at physical 0: {at_zero[:8]}: page walks go to 0.")
+                continue
+            if pn not in (1, 3, 5) or not words:
                 continue
             regs = decode_lri(words)
             if not regs:
@@ -611,7 +657,9 @@ def context_summary(dumps):
                 out.append(f"    LRI 0x{off:05x} {name:<18} = 0x{val:08x}")
             named = {CTX_REG_NAMES.get(off & 0xFFF): val for off, val in regs}
             order = [off & 0xFFF for off, _ in regs][:len(I915_GEN12_RCS_ORDER)]
-            if order == I915_GEN12_RCS_ORDER[:len(order)]:
+            if pn == 3:
+                pass  # POSH context: its own layout, not compared with i915's RCS list
+            elif order == I915_GEN12_RCS_ORDER[:len(order)]:
                 out.append(f"    -> restore list matches i915's Gen12 RCS layout ({len(order)} registers checked).")
             else:
                 first = next(i for i, (a, b) in enumerate(zip(order, I915_GEN12_RCS_ORDER)) if a != b) \
@@ -650,7 +698,7 @@ def main(argv):
         text = f.read()
     _, samples = parse(text)
     print("\n".join(timeline(samples) + [""] + summary(samples) + stall_summary(stalls(text))
-                    + [""] + hang_verdict(samples, msi) + [""] + context_summary(context_dumps(text)) + gtt_summary(gtt_window(text))))
+                    + [""] + hang_verdict(samples, msi) + [""] + context_summary(context_dumps(text)) + gtt_summary(gtt_window(text)) + gtt_scan_summary(text)))
 
 
 if __name__ == "__main__":

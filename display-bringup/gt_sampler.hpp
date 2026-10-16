@@ -87,6 +87,7 @@ constexpr int indexOf(const char*name){
 }
 constexpr int hwsIndex=indexOf("rcsHwsPga");
 constexpr int sq0Index=indexOf("rcsSq0Lo");
+constexpr int sq1Index=indexOf("rcsSq1Lo");
 // Derived reads that would fall outside the mapped BAR read as this marker.
 constexpr uint32_t outsideBar=0xffffffffu;
 

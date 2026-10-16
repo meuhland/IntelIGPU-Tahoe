@@ -1354,6 +1354,53 @@ The host capture file came out empty; the decode above was salvaged from the
 terminal, so only what is in the guest notes survives. Evidence:
 `~/work/igpu-notes/window-20261016-decode-a76e.txt` (guest).
 
+#### Interpretation (offline, 2026-10-16)
+
+- **The "engine loads other memory" theory is refuted.** The submitted
+  context is exactly what the binary says Apple builds: the template's
+  restore list (same register order, no `CCID`/`0x2b4`, as read from
+  `g_cInitGfxRingContextRCS`), filled with a valid `RING_CTL` (`0x7001`,
+  32 KiB), a ring at GGTT `0x402cb000` holding real commands, `PDP0` and
+  `POSH_LRCA`. Its status page, register-state page and ring all have valid
+  GGTT PTEs into guest RAM (`0x1_35…`/`0x1_38…`, inside the 4–18 GiB part of
+  the 16 GiB guest), none at physical 0. The memory is right.
+- **`CONTEXT_CONTROL` `0xffff0011` explains the register readback.** Bit 0
+  is `CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT`: the engine does not restore the
+  image. i915 does the same for its first context when no default state
+  exists yet (`lrc_init_regs(…, inhibit)`, before `engines_record_defaults`),
+  and Apple's first context is the one that creates the golden image. So
+  `CONTEXT_CONTROL` reading back `0x100` rather than the image value, and
+  `R_PWR_CLK_STATE` `0x80000000` vs i915's `0x80041000`, say nothing yet:
+  neither is loaded from this image. The Linux control ran the same
+  restore-inhibited first submission on this VM without a fault.
+- **Remaining differences from i915's first context:**
+  - `CONTEXT_CONTROL` value bits: Apple sets bits 0 and 4; i915 sets bits 0
+    and 3 (`CTX_CTRL_INHIBIT_SYN_CTX_SWITCH`). Bit 4 is not defined in
+    i915's headers.
+  - Two valid contexts at once: `SQ1` = LRCA `0x402d7000`, sw ctx id 2. i915's
+    first submission has one element. Which load raised CAT_ERROR cannot be
+    told from 250 ms samples.
+  - POSH: Apple enables it unconditionally and links a POSH context
+    (`POSH_LRCA` `0x402b3000`). i915 never uses POSH.
+  - PPGTT: `PDP0` `0x1_34f94000` is in guest RAM, but its entries are unseen.
+    A present entry at physical 0 would explain a write to 0.
+  - GGTT: the 1 MiB window was all valid, but Apple's objects sit at
+    `+2.7 MiB` and beyond (`0x402b3000`…`0x402d7000`), outside that window.
+- **The write to `0x0` (reason `0x02`) is still unexplained.** It is placed at
+  submission with the VM attached (third confirmation this window, 28 s after
+  `date`). No context page points at 0. That leaves the POSH context, SQ1,
+  the PPGTT and the rest of the GGTT as places the GPU could take a 0 address
+  from.
+
+**Built for the next window** (hold probe, one dump at the first new LRCA):
+`p3` = page 1 of the POSH context (from `POSH_LRCA`), `p4` = the PPGTT root
+page (from `PDP0`, mapped physically; or "`PPGTT root is 0`"), `p5` = page 1
+of the SQ1 context. The 1 MiB GGTT listing is replaced by a scan of 8 MiB
+from `0x40000000` that prints only entries not valid or valid at physical 0
+(`ReimsGT gttbad`, at most 48) and one `ReimsGT gttscan` summary. The decoder
+decodes the POSH/SQ1 restore lists, counts present root entries and flags
+any at physical 0, and summarises the scan.
+
 ## Prior art
 
 Reviewed read-only on 2026-10-09; nothing downloaded or run.

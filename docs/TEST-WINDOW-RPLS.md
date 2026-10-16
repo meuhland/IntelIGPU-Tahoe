@@ -97,6 +97,24 @@ Next run of this section, additions:
   and a "GGTT window …" run list with any entry at physical 0. If no
   `ReimsGT ctx` line appears, the submit queue read back 0 (the summary line
   "submit queue reads 0" says so).
+- **Result 2026-10-16 morning (probe `A76EC7C7`):** the dump worked. The
+  context, its ring and status page are sane and in guest RAM (PORT doc
+  "Interpretation (offline, 2026-10-16)"). **Rebuild the hold probe** (HEAD of
+  `uhd770-port`, new binary: pre-load once). The dump now also prints `p3`
+  (POSH context page 1), `p4` (PPGTT root page, or `… p4 PPGTT root is 0`),
+  `p5` (the second submitted context, SQ1, page 1), each a `pte` line plus 12
+  `@<n>` lines. The `ReimsGT gtt` listing is gone. Instead there are
+  up to 48 `ReimsGT gttbad <gtt> <pte>` lines (entries in the 8 MiB from
+  `0x40000000` that are not valid or point at physical 0) and one
+  `ReimsGT gttscan 40000000 2048 valid … invalid … zero …` line. Expect
+  about 70–120 lines at once. Decoder lines to report: "page 4 (PPGTT root
+  …): … root entries present" and any "-> present root entries pointing at
+  physical 0", "GGTT scan …" with "valid entries at physical 0", and the
+  page 3/5 restore lists.
+- **Keep the host capture file.** On 2026-10-16 the file came out empty and the
+  decode was salvaged from the terminal. Before `igpu-start`, check that it
+  grows: `ls -l /root/vm113-serial-*.log | tail -1` twice, a few seconds
+  apart, while the guest is booting.
 - **Note the wall-clock time of `igpu-start`** (`date` right before it). The
   2026-10-15 write-to-0 faults turned out to come at the first context
   submission, i.e. at `igpu-start`, not at the stop (PORT doc "DMAR timing
