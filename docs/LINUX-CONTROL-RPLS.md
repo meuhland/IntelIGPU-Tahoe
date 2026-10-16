@@ -130,6 +130,46 @@ A's `i915_engine_info` for `rcs0` with our watch: `RING_START`,
 real work. They show what a working Gen12 RCS looks like on this exact
 hardware and VM.
 
+## Result 2026-10-16 (run A only; B skipped as unnecessary)
+
+VM 114, Ubuntu 26.04.1 LTS desktop live, `i915.enable_guc=0` (cmdline
+confirmed; `Setting dangerous option enable_guc - tainting kernel`), `args:`
+reduced to `-device vfio-pci,host=0000:00:02.0,bus=pcie.0,addr=0x2 -global
+ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off` (VM 113's macOS-only
+SMC/SMBIOS/CPU/USB arguments dropped).
+
+- **i915 probe:** `Found alderlake_s/raptorlake_s (device ID a780) ...
+  stepping D0`, `VT-d active for gfx access`, ADL-S DMC v2.1 loaded,
+  initialised on minor 1 (the emulated bochs VGA is minor 0). Only
+  display-side complaints: `Failed to find VBIOS tables (VBT)` (stock OVMF
+  passes no OpRegion) and `DDI A/PHY A failed to retrieve link info,
+  disabling eDP`. **No hang, reset, wedge or engine error**, although i915
+  submits and waits for work on every engine at load (default-context
+  recording).
+- **Render work:** `DRI_PRIME=1 glxinfo -B`: `Mesa Intel(R) Graphics (RPL-S)
+  (0xa780)`, Mesa 26.0.8, accelerated, OpenGL 4.6. `glxgears` ran at ~75 FPS
+  (vsync of the virtual display), no hang.
+- **`i915_engine_info` rcs0** (idle at both reads; vsync bursts park the
+  engine between frames): runtime 9006 ms then 13964 ms, i.e. it executed;
+  `EL_STAT_LO 0x00018001`, `EL_STAT_HI 0`; CSB read 8 / write 8 of 12 (context
+  switches happened); `RING_MODE` (i915's name for `MI_MODE`) `0x200`
+  [idle]; `RING_START/HEAD/TAIL/CTL`, `ACTHD`, `BBADDR`, `DMA_FADDR`, `IPEIR`,
+  `IPEHR` 0 (context switched out); `RING_IMR 0`, `RING_EMR 0xfffffffe`,
+  `RING_ESR/EIR 0`; reset count 0. Between the two reads the CSB pointers
+  went 8 → 10 and the global status page (HWSP) value at `0x100` went
+  `0x22d2` → `0x38d7` (GPU-written completions), with the CSB write index
+  mirrored at HWSP `0xbc` (8 → `0xa`): the engine executed and wrote its
+  completions to memory.
+
+**Conclusion:** execlist submission on RCS works on this IGD through this
+exact passthrough (QEMU vfio, OVMF without GOP, no VBT/OpRegion). The macOS
+start hang is not the VM setup: it is in what Apple's driver submits or how
+it maps it (PORT doc: the engine loads memory other than Apple's context
+image). Compared with Apple's hung engine: `EL_STAT_LO` `0x00018001` (i915
+idle) vs `0x40003018`; CSB advanced vs reset and frozen; `MI_MODE` idle vs 0;
+no errors vs `CAT_ERROR`. Ring registers reading 0 are normal when no
+context is loaded, so they were not by themselves the symptom.
+
 ## Notes
 
 - Nothing here writes to the host. The live session leaves no disk behind;
