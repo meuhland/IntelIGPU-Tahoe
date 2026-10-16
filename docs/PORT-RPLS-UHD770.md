@@ -1321,9 +1321,10 @@ Recorded facts; interpretation left to the offline session. Hold+watch probe
 `A76EC7C7` (52-register watch plus the one-shot dump at first submission),
 candidate `3a7cfb99`, gate `2DF3A522`; VM 113 8 cores, 1 socket. Guest probe
 read: held fuses 1/3/0/`0xe00fa`, both acks, `ReimsGTWatch: True`; serial
-parts complete. The guest `date` before `igpu-start` was not recorded.
+parts complete. Guest `date` right before `igpu-start`: **10:12:22**.
 
-- Host DMAR: one write-to-0 fault (reason `0x02`) at **10:12:50**; none in
+- Host DMAR: one write-to-0 fault (reason `0x02`) at **10:12:50**, 28 s
+  after the guest's `date` (clocks as-is); none in
   the baseline (10:10:49; VM start 10:06:08, guest reboot 10:08:27). During
   the hang MSI `Enable+` (`fee00018`), `vfio-msi[0]` count 0 across 5 s.
 - Decoder (`--msi flat`): 62 samples, 40697 ms to 251036 ms. Same sequence as

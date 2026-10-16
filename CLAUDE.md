@@ -265,7 +265,8 @@ display decode, 5 framebuffer takeover, 6 GT1 Metal bring-up, 7 desktop handoff,
   `0x58`, `PDP0` `0x1_34f94000`, `R_PWR_CLK_STATE` `0x80000000` (decoder:
   i915 would program `0x80041000`; list differs from i915's Gen12 RCS layout
   at entry 11); ring holds `PIPE_CONTROL`s and `MI_NOOP`s. GGTT window from
-  1 GiB fully valid. Host DMAR write-to-0 at 10:12:50, MSI count 0. Facts
+  1 GiB fully valid. Host DMAR write-to-0 at 10:12:50, 28 s after
+  `igpu-start` (10:12:22); MSI count 0. Facts
   only: port doc "Context dump window";
   `~/work/igpu-notes/window-20261016-decode-a76e.txt`.
 - EDID over GMBUS (code; run on hardware 2026-10-13: `ReimsEDIDStatus:
