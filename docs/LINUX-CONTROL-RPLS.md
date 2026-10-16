@@ -44,9 +44,12 @@ about 20–30 minutes.
    `qemu-xhci` elsewhere (PORT doc "Proxmox guest setup"):
 
    ```sh
-   qm config 113 | grep '^args:'
-   qm set 114 --args '<the same value>'
+   qm set 114 --args "$(qm config 113 | sed -n 's/^args: //p')"
+   qm config 114 | grep '^args'      # one "args:" prefix only, then -device ...
    ```
+
+   (Copying the `grep '^args:'` output by hand keeps the `args:` prefix in the
+   value, and QEMU then fails with "args:: Unknown protocol 'args'".)
 
    Keep `vga: std` (the console). The IGD is a secondary GPU, as in VM 113.
    `pre-enrolled-keys=0` keeps Secure Boot off so the live ISO boots. Adjust
