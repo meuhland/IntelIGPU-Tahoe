@@ -1473,6 +1473,27 @@ Read from the `sle` binary (`IGHardwareContext::initWithOptions` `0x7b9d4`,
     relocation), the same flags as GL graphics contexts.
   - `REIMS_RPLS_NO_CCS=1`: the gate's personality gets `EnableMultiContext`
     0, so CCS is left out and stays off in `RCU_MODE`.
+- **Host result (2026-10-16 evening, i915 bound, read under
+  `i915_forcewake_user`):** every engine Apple uses answers: RCS, **POCS**,
+  **CCS**, BCS, VCS0, VCS2, VECS0 (MI_MODE `0x200` idle; INSTDONE
+  `0xfffffffe` for RCS/POCS/CCS). VCS1/VECS1 read all zero (fused off). So
+  POSH and CCS do **not** reference missing hardware. POCS and CCS idle
+  with `EXECLIST_STATUS` `0x1`, `HWS_PGA` 0, mode 0 (i915 never starts
+  them). On the engines i915 drives, `mode` (`GFX_MODE`) is **`0x8`**
+  (`GEN11_GFX_DISABLE_LEGACY_MODE` set by `enable_execlists`). The VM watch
+  read RCS `GFX_MODE` 0 after Apple's `initModeRegisters`, its only writer;
+  `getGPUInfo` only does a discarded read. ADL-P runs Apple's value and
+  works, so this is weak, but it is the one engine-mode difference from the
+  known-good driver on this machine. Other `GT_CONFIG` values i915 left:
+  `0x20e4` 0, `0x25a4` 0, `0xe5f0` 0, `0xb104` 0, all registers Apple sets
+  bits in. `0xb100` (`L3SQCREG1`) is `0xb3400000`; Apple overwrites it with
+  `0x284000` under a workaround-table bit. `0x9120` is 4, which Apple's MCR
+  steering code (`0x2546a`, under another workaround bit) does not map:
+  `encodeFailureStack(0x226)`. `RCU_MODE` is 0 (no CCS mode).
+- Third opt-in variant: `REIMS_RPLS_GFX_MODE_I915=1` (candidate builder):
+  `initModeRegisters` writes `0x00080008` instead of `0x00080000`, so it
+  sets `DISABLE_LEGACY_MODE` as i915 does. File `0x28e48`, the immediate of
+  `movl $imm,(%rax,%rsi)`.
 - Sampler: 8 more columns (66, seven parts): POCS `RESET_CTL`/
   `EXECLIST_STATUS`/`MI_MODE`/`HWS_PGA`/`CONTEXT_CONTROL`, CCS
   `RESET_CTL`/`EXECLIST_STATUS`, `GEN12_RCU_MODE`. The decoder flags a POCS

@@ -54,6 +54,13 @@ debugfs` line means debugfs is not mounted: `mount -t debugfs none
 | CCS reads like VCS1 (no compute engine) | Gate with `REIMS_RPLS_NO_CCS=1` (`EnableMultiContext` 0) |
 | Both answer | Default candidate with the 66-column watch; read the POCS/CCS lines at the fault, then try the variants as second and third attempts |
 
+**Result 2026-10-16 evening: both answer** (RCS, POCS, CCS, BCS, VCS0, VCS2,
+VECS0 live; VCS1/VECS1 absent). i915's engines read `GFX_MODE` `0x8`, Apple
+leaves 0 (PORT doc, "Host result"). Next window: the default candidate with
+the rebuilt hold probe (66 columns, context/POSH/root/SQ1 dumps, GGTT scan).
+Variants in order of preference for the window after: `REIMS_RPLS_GFX_MODE_I915=1`
+(i915's mode bit), then `REIMS_RPLS_NO_POSH=1`, then `REIMS_RPLS_NO_CCS=1`.
+
 Paste the table and the `=>` lines back for the offline session, along with
 the JSON (it has the `GT_CONFIG` values i915 left).
 
@@ -62,6 +69,7 @@ approval once before the window):
 
 ```sh
 REIMS_TARGET=rpls REIMS_RPLS_NO_POSH=1 python3 desktop-manual-20260917/fix/prepare-deferred-runtime.py <TGL bundle>
+REIMS_TARGET=rpls REIMS_RPLS_GFX_MODE_I915=1 python3 desktop-manual-20260917/fix/prepare-deferred-runtime.py <TGL bundle>
 REIMS_TARGET=rpls REIMS_RPLS_NO_CCS=1 bash desktop-manual-20260917/fix/manual-gate/build.sh
 ```
 

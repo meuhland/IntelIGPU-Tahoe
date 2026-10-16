@@ -127,6 +127,21 @@ if posh_patch:
     assert b[0xbf350:0xbf35c]==bytes.fromhex('00000c00'+'00000000'+'00000000')
     assert not any(0xb0bc0<=a<0xb0bcc for a in relocs)
     edits.append((posh_site,b'\x0c'))
+# RPL-S GFX_MODE as i915 (opt-in, REIMS_RPLS_GFX_MODE_I915=1; untested on
+# hardware). initModeRegisters, the only writer of each engine's GFX_MODE
+# (kIGHwCsDesc+0x39), writes 0x00080000 = _MASKED_BIT_DISABLE(
+# GEN11_GFX_DISABLE_LEGACY_MODE). i915's enable_execlists sets that bit, and
+# the 2026-10-16 host check read mode 0x8 on every engine i915 drives, where
+# the VM watch read 0. ADL-P runs Apple's value and works, so this is a weak
+# suspect, but it is the one mode difference from the known-good driver on
+# this machine. Write 0x00080008 instead (immediate of movl $imm,(%rax,%rsi)).
+gfx_mode_site=0x28e48
+gfx_mode_patch=target_name=='rpls' and os.environ.get('REIMS_RPLS_GFX_MODE_I915')=='1'
+if gfx_mode_patch:
+    assert values['__ZN16IntelAccelerator17initModeRegistersEv']==0x28e1a
+    assert b[0x28e40:0x28e4c]==bytes.fromhex('428b740639'+'c704300000'+'0800')
+    assert not any(0x28e45<=a<0x28e4c for a in relocs)
+    edits.append((gfx_mode_site,bytes.fromhex('08000800')))
 patched=bytearray(b)
 for at,new in edits:patched[at:at+len(new)]=new
 # Every byte outside the edits is unchanged.
@@ -172,5 +187,8 @@ if target_name=='rpls':
     if posh_patch:
         record['posh_file_offset']=hex(posh_site)
         record['posh_patch']='g_cInitGfxHwCtxParamsForGraphics flags 0x1c->0x0c: Metal graphics contexts without POSH (as GL)'
+    if gfx_mode_patch:
+        record['gfx_mode_file_offset']=hex(gfx_mode_site)
+        record['gfx_mode_patch']='IntelAccelerator::initModeRegisters: GFX_MODE 0x00080008 (DISABLE_LEGACY_MODE set, as i915)'
 (base/'deferred-runtime.json').write_text(json.dumps(record,indent=2)+'\n')
 print(json.dumps(record,indent=2))
